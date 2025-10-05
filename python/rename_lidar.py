@@ -15,7 +15,7 @@ def rename_and_copy_lidar():
     重命名并复制雷达点云文件
     """
     # 源目录和目标目录
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/python/output/lidar_txt"
+    source_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar_pre"
     target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar"
     
     # 确保目标目录存在

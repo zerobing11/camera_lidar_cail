@@ -17,7 +17,9 @@
 #include <Eigen/Geometry>//使用到了四元数数据结构
 
 #include <opencv/cv.h>    
-#include <opencv/highgui.h>    
+#include <opencv/highgui.h>
+#include <opencv2/opencv.hpp>
+#include <opencv2/imgproc.hpp>    
 
 #include "DealString.h"
 
@@ -267,7 +269,7 @@ namespace Util
 	  {
 	    cv::Mat image_gray;
 	    //将彩色图像转换成灰色图像
-	    cv::cvtColor(imgtmp,image_gray,CV_RGB2GRAY);
+	    cv::cvtColor(imgtmp,image_gray,cv::COLOR_RGB2GRAY);
 	    //找到亚像素级别的角点位置
 	    cv::find4QuadCornerSubpix(image_gray,corners,Size(5,5));
 	    //在图像中绘制出角点

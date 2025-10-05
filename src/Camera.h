@@ -107,7 +107,7 @@ namespace CAMERA
 
         if(MD->isMouseCallback)
         {
-            if(event == CV_EVENT_LBUTTONDOWN)
+            if(event == cv::EVENT_LBUTTONDOWN)
             {
                 MD->click_count++;
                 if(MD->click_count==3)
@@ -117,11 +117,11 @@ namespace CAMERA
                 MD->p[MD->click_count][1]=y;
 
                 if(MD->click_count==0)
-                    cv::circle( MD->org_img, clickpoint, 5,Scalar(255, 0, 0) ,CV_FILLED, CV_AA, 0 );
+                    cv::circle( MD->org_img, clickpoint, 5,Scalar(255, 0, 0) ,cv::FILLED, cv::LINE_AA, 0 );
                 if(MD->click_count==1)
-                    cv::circle( MD->org_img, clickpoint, 5,Scalar(0, 255, 0) ,CV_FILLED, CV_AA, 0 );
+                    cv::circle( MD->org_img, clickpoint, 5,Scalar(0, 255, 0) ,cv::FILLED, cv::LINE_AA, 0 );
                 if(MD->click_count==2)
-                    cv::circle( MD->org_img, clickpoint, 5,Scalar(0, 0, 255) ,CV_FILLED, CV_AA, 0 );
+                    cv::circle( MD->org_img, clickpoint, 5,Scalar(0, 0, 255) ,cv::FILLED, cv::LINE_AA, 0 );
                 cv::imshow("Image",MD->org_img);
             }
         }
@@ -463,10 +463,10 @@ namespace CAMERA
             cur_boards[indx_bd].ordered_edge_indx[2] = indx_tmp;
         }
         //第一个点是白色，依次是红绿蓝
-        cv::circle( img, A, 3,cv::Scalar(255,255,255) ,CV_FILLED, CV_AA, 0 );//红色
-        cv::circle( img, B, 3,cv::Scalar(0,0,255) ,CV_FILLED, CV_AA, 0 );//红色
-        cv::circle( img, C, 3,cv::Scalar(0,255,0) ,CV_FILLED, CV_AA, 0 );//绿色
-        cv::circle( img, D, 3,cv::Scalar(255,0,0) ,CV_FILLED, CV_AA, 0 );//蓝色
+        cv::circle( img, A, 3,cv::Scalar(255,255,255) ,cv::FILLED, cv::LINE_AA, 0 );//红色
+        cv::circle( img, B, 3,cv::Scalar(0,0,255) ,cv::FILLED, cv::LINE_AA, 0 );//红色
+        cv::circle( img, C, 3,cv::Scalar(0,255,0) ,cv::FILLED, cv::LINE_AA, 0 );//绿色
+        cv::circle( img, D, 3,cv::Scalar(255,0,0) ,cv::FILLED, cv::LINE_AA, 0 );//蓝色
         
         cur_boards[indx_bd].orderd_corners.clear();
         
@@ -628,11 +628,11 @@ namespace CAMERA
                     acc  = acc + point;
                     //不同标定板角点标注
                     if(indx_bd==0)
-                        cv::circle( img, point, 1,Scalar(255, 0, 0) ,CV_FILLED, CV_AA, 0 );
+                        cv::circle( img, point, 1,Scalar(255, 0, 0) ,cv::FILLED, cv::LINE_AA, 0 );
                     if(indx_bd==1)
-                        cv::circle( img, point, 1,Scalar(0, 255, 0) ,CV_FILLED, CV_AA, 0 );
+                        cv::circle( img, point, 1,Scalar(0, 255, 0) ,cv::FILLED, cv::LINE_AA, 0 );
                     if(indx_bd==2)
-                        cv::circle( img, point, 1,Scalar(0, 0, 255) ,CV_FILLED, CV_AA, 0 );
+                        cv::circle( img, point, 1,Scalar(0, 0, 255) ,cv::FILLED, cv::LINE_AA, 0 );
                     
                     //记录顶点序号
                     if((i==0)&&(j==0))
@@ -652,11 +652,11 @@ namespace CAMERA
                 Point2f tmp = cur_boards[indx_bd].corners[cur_boards[indx_bd].edge_indx[i]];
                 //cout<<"  Edge Point = "<<tmp.x<<" "<<tmp.y<<endl;
                 if(indx_bd==0)
-                    cv::circle( img, tmp, 3,Scalar(255, 0, 0) ,CV_FILLED, CV_AA, 0 );//蓝色
+                    cv::circle( img, tmp, 3,Scalar(255, 0, 0) ,cv::FILLED, cv::LINE_AA, 0 );//蓝色
                 if(indx_bd==1)
-                    cv::circle( img, tmp, 3,Scalar(0, 255, 0) ,CV_FILLED, CV_AA, 0 );//绿色
+                    cv::circle( img, tmp, 3,Scalar(0, 255, 0) ,cv::FILLED, cv::LINE_AA, 0 );//绿色
                 if(indx_bd==2)
-                    cv::circle( img, tmp, 3,Scalar(0, 0, 255) ,CV_FILLED, CV_AA, 0 );//红色
+                    cv::circle( img, tmp, 3,Scalar(0, 0, 255) ,cv::FILLED, cv::LINE_AA, 0 );//红色
             }
             //形心坐标
             Point2f centroid = acc/(float)numofcorner;
@@ -704,7 +704,7 @@ namespace CAMERA
                 cur_boards[min_board_indx].first_edge_indx = min_corner_indx;
                 reorder_info[j] = min_board_indx;
                 cout<<"min_board_indx = "<<min_board_indx<<" min_corner_indx = "<<min_corner_indx<<endl;
-                cv::circle( img, cur_boards[min_board_indx].corners[min_corner_indx], 3,Scalar(255, 255, 255) ,CV_FILLED, CV_AA, 0 );
+                cv::circle( img, cur_boards[min_board_indx].corners[min_corner_indx], 3,Scalar(255, 255, 255) ,cv::FILLED, cv::LINE_AA, 0 );
                 //更新ordered_edge_indx和ordered_corner
                 bool valid = Update_Ordered_Info(min_board_indx);//根据点的顺序重新对board进行排序
                 if(valid)
@@ -1369,15 +1369,15 @@ namespace CAMERA
 			           cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 1);
 			
 			// 显示拼接后的对比图像
-			cv::imshow("Intrinsic & Extrinsic Validation", merge_img_final);
+			// cv::imshow("Intrinsic & Extrinsic Validation", merge_img_final);
 			
 			// 等待按键继续（ESC退出，其他键继续）
-			int key = cv::waitKey(0);
-			if(key == 27) // ESC键
-			{
-				cout<<"Validation stopped by user."<<endl;
-				break;
-			}
+			// int key = cv::waitKey(0);
+			// if(key == 27) // ESC键
+			// {
+			// 	cout<<"Validation stopped by user."<<endl;
+			// 	break;
+			// }
 		}
 		
 		cout<<"Parameter validation completed!"<<endl;
@@ -1513,62 +1513,62 @@ namespace CAMERA
             
             // ========== 方法2：基于标准平面模型重新计算 ==========
             // 创建标准的3D平面点（6x4网格，间距0.155m）
-            for(int i=0;i<6;i++)
-            {
-                for(int j=0;j<4;j++)
-                {
-                    valid3d_plane.push_back(cv::Point3f(-j*0.155,-i*0.155,0));
-                }
-            }
-            
-            vector<cv::Point2f> p;
-            Eigen::Vector3f normal(0,0,-1);  // 标准平面的法向量
-            
-            // 对每个标定板重新计算平面参数
-            for(int i=0;i<3;i++)
-            {
-                // 收集当前标定板的角点
-                for(int j=0;j<numofcorner;j++)
-                {
-                    p.push_back(undistorpoints[j+i*numofcorner]);
-                }
-                
-                // 重新求解PnP
-                cv::solvePnP ( ConvertToDouble(valid3d_plane), ConvertToDouble(p), intrincMatrix, 
-                              Mat(1,5,CV_64FC1,Scalar::all(0)), angleaxis, cvt, false ,cv::SOLVEPNP_EPNP);
-			    cv::solvePnP ( ConvertToDouble(valid3d_plane), ConvertToDouble(p), intrincMatrix, 
-                              Mat(1,5,CV_64FC1,Scalar::all(0)), angleaxis, cvt, true ,cv::SOLVEPNP_ITERATIVE);
-                
-                // 更新旋转矩阵
-                cv::Rodrigues ( angleaxis, cvR );
-                R_eigen<<(float)cvR.at<double>(0,0),(float)cvR.at<double>(0,1),(float)cvR.at<double>(0,2),
-				(float)cvR.at<double>(1,0),(float)cvR.at<double>(1,1),(float)cvR.at<double>(1,2),
-				(float)cvR.at<double>(2,0),(float)cvR.at<double>(2,1),(float)cvR.at<double>(2,2);
-			    t_eigen<<(float)cvt.at<double>(0),(float)cvt.at<double>(1),(float)cvt.at<double>(2);
-                
-                cout<<"cvR:"<<cvR<<endl;
-			    cout<<"cvt:"<<cvt<<endl;
-                
-                // 计算相机坐标系下的平面参数
-                normal=Eigen::Vector3f(0,0,-1);
-                Eigen::Vector3f cam_normal = R_eigen*normal;
-                float cam_D = -(cam_normal[0]*t_eigen[0]+cam_normal[1]*t_eigen[1]+cam_normal[2]*t_eigen[2]);
-                
-                // 确保法向量指向相机
-				if((t_eigen).adjoint()*cam_normal>0)
-                {
-                    cam_normal = -cam_normal;
-                    cam_D=-cam_D;
-                }
-                
-                // 存储第二种方法的平面参数
-				tmp_Plane2.push_back(Eigen::Vector4f(cam_normal[0],cam_normal[1],cam_normal[2],cam_D));
-                p.clear();
-            }
+    //         for(int i=0;i<6;i++)
+    //         {
+    //             for(int j=0;j<4;j++)
+    //             {
+    //                 valid3d_plane.push_back(cv::Point3f(-j*0.155,-i*0.155,0));
+    //             }
+    //         }
+    //
+    //         vector<cv::Point2f> p;
+    //         Eigen::Vector3f normal(0,0,-1);  // 标准平面的法向量
+    //
+    //         // 对每个标定板重新计算平面参数
+    //         for(int i=0;i<3;i++)
+    //         {
+    //             // 收集当前标定板的角点
+    //             for(int j=0;j<numofcorner;j++)
+    //             {
+    //                 p.push_back(undistorpoints[j+i*numofcorner]);
+    //             }
+    //
+    //             // 重新求解PnP
+    //             cv::solvePnP ( ConvertToDouble(valid3d_plane), ConvertToDouble(p), intrincMatrix,
+    //                           Mat(1,5,CV_64FC1,Scalar::all(0)), angleaxis, cvt, false ,cv::SOLVEPNP_EPNP);
+			 //    cv::solvePnP ( ConvertToDouble(valid3d_plane), ConvertToDouble(p), intrincMatrix,
+    //                           Mat(1,5,CV_64FC1,Scalar::all(0)), angleaxis, cvt, true ,cv::SOLVEPNP_ITERATIVE);
+    //
+    //             // 更新旋转矩阵
+    //             cv::Rodrigues ( angleaxis, cvR );
+    //             R_eigen<<(float)cvR.at<double>(0,0),(float)cvR.at<double>(0,1),(float)cvR.at<double>(0,2),
+				// (float)cvR.at<double>(1,0),(float)cvR.at<double>(1,1),(float)cvR.at<double>(1,2),
+				// (float)cvR.at<double>(2,0),(float)cvR.at<double>(2,1),(float)cvR.at<double>(2,2);
+			 //    t_eigen<<(float)cvt.at<double>(0),(float)cvt.at<double>(1),(float)cvt.at<double>(2);
+    //
+    //             cout<<"cvR:"<<cvR<<endl;
+			 //    cout<<"cvt:"<<cvt<<endl;
+    //
+    //             // 计算相机坐标系下的平面参数
+    //             normal=Eigen::Vector3f(0,0,-1);
+    //             Eigen::Vector3f cam_normal = R_eigen*normal;
+    //             float cam_D = -(cam_normal[0]*t_eigen[0]+cam_normal[1]*t_eigen[1]+cam_normal[2]*t_eigen[2]);
+    //
+    //             // 确保法向量指向相机
+				// if((t_eigen).adjoint()*cam_normal>0)
+    //             {
+    //                 cam_normal = -cam_normal;
+    //                 cam_D=-cam_D;
+    //             }
+    //
+    //             // 存储第二种方法的平面参数
+				// tmp_Plane2.push_back(Eigen::Vector4f(cam_normal[0],cam_normal[1],cam_normal[2],cam_D));
+    //             p.clear();
+    //         }
             
             // 输出两种方法的对比结果
             cout<<"method 1 plane param = "<<tmp_Plane[0].transpose()<<" "<<tmp_Plane[1].transpose()<<" "<<tmp_Plane[2].transpose()<<endl<<endl;
-            cout<<"method 2 plane param = "<<tmp_Plane2[0].transpose()<<" "<<tmp_Plane2[1].transpose()<<" "<<tmp_Plane2[2].transpose()<<endl<<endl;
+            // cout<<"method 2 plane param = "<<tmp_Plane2[0].transpose()<<" "<<tmp_Plane2[1].transpose()<<" "<<tmp_Plane2[2].transpose()<<endl<<endl;
             
             // 将平面参数存储到结果中（使用方法1的结果）
             cam_planes.insert(pair<int,vector<Eigen::Vector4f>>(iter->first,tmp_Plane));

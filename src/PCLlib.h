@@ -1,6 +1,14 @@
 #ifndef _PCLlib_
 #define _PCLlib_
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 199309L
+#endif
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
+#include <time.h>
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -59,59 +67,36 @@
 #include "Util.h"
  
 using namespace std;
-pcl::PointCloud<pcl::PointXYZI> Load_PointCloud(string filenames,int ID,float angle1=90,float angle2=270,float range_=0.6)
+pcl::PointCloud<pcl::PointXYZI> Load_PointCloud(vector<vector<float>> cloud_points)
 {
-	vector<vector<float>> cloud_points = FileIO::ReadTxt2Float(filenames);
 	pcl::PointCloud<pcl::PointXYZI> cloud;
 	for(int j=0;j<cloud_points.size();j++)
 	{
+		// 检查每个点是否至少有3个坐标值（X, Y, Z）
+		if(cloud_points[j].size() < 3)
+		{
+			// cout<<"[Warning] Load_PointCloud: Point "<<j<<" has only "<<cloud_points[j].size()<<" values, skipping."<<endl;
+			continue;
+		}
+		
 		float x = cloud_points[j][0]; 
 		float y = cloud_points[j][1];
 		float z = cloud_points[j][2];
 		float range = sqrt(x * x + y * y+ z * z);
-		if(range > range_)
-		{
-			float horizonAngle = -atan2(y, x)*180/PI+180;//输出范围0-360度
-			if((horizonAngle>=angle1)&&(horizonAngle<=angle2))//(horizonAngle>=angle1)&&(horizonAngle<=angle2)
-			{
-				pcl::PointXYZI temp;
-				temp.x = x;
-				temp.y = y;
-				temp.z = z;
-				temp.intensity = ID;//i
-				cloud.push_back(temp);
-			}
-		}
+		pcl::PointXYZI temp;
+		temp.x = x;
+		temp.y = y;
+		temp.z = z;
+		// 如果原始数据包含intensity信息，使用它；否则设为默认值
+		if(cloud_points[j].size() >= 4)
+			temp.intensity = cloud_points[j][3];
+		else
+			temp.intensity = 1.0f;
+		cloud.push_back(temp);
+
 	}
 	return cloud;
 } 
-
-std::vector<pcl::PointCloud<pcl::PointXYZI>> GetScanPointCloud(vector<vector<float>> cloud_points,int N_SCANS,float angle1=90,float angle2=270)
-{
-	std::vector<pcl::PointCloud<pcl::PointXYZI>> laserCloudScans(N_SCANS);
-	for(int j=0;j<cloud_points.size();j++)
-	{
-		pcl::PointXYZI temp;
-		temp.x = cloud_points[j][0]; 
-		temp.y = cloud_points[j][1];
-		temp.z = cloud_points[j][2];
-
-		float horizonAngle = -atan2(temp.y, temp.x)*180/PI+180;//输出范围0-360度
-		float angle = atan(temp.z / sqrt(temp.x * temp.x + temp.y * temp.y)) * 180 / M_PI;
-		if((horizonAngle>=angle1)&&(horizonAngle<=angle2))//(horizonAngle>=angle1)&&(horizonAngle<=angle2)
-		{
-			int ID=int((angle + 15) / 2 + 0.5);
-			if(ID>=N_SCANS)
-			    continue;
-
-			temp.intensity =ID+(horizonAngle-angle1)/360;//i
-			laserCloudScans[ID].push_back(temp);
-		}	
-	}
-
-	return laserCloudScans;
-} 
-
 
 
 namespace PCLlib
@@ -405,6 +390,218 @@ namespace PCLlib
 		cout<<"center:"<<center<<endl;
 	}
 
+	// 第一次RANSAC平面检测函数 - 在小范围内提取初始平面
+	bool FirstRansacDetection(Eigen::Vector4f &first_plane_model, Eigen::Vector3f &center,
+							  pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point, 
+							  float x1_radius=0.8, float ransac_radius=0.02, int min_points=20, 
+							  float small_plane_intensity=50.0)
+	{
+		cout<<"Starting first RANSAC plane detection..."<<endl;
+		cout<<"Target point: ("<<target_point.x<<", "<<target_point.y<<", "<<target_point.z<<")"<<endl;
+
+		// 第一步：在种子点附近x1米的圆形区域内收集点云
+		pcl::PointCloud<pcl::PointXYZI> first_stage_points;
+		first_stage_points.clear();
+		for(int i = 0; i < global_map.size(); i++)
+		{
+			float dx = global_map[i].x - target_point.x;
+			float dy = global_map[i].y - target_point.y;
+			float dz = global_map[i].z - target_point.z;
+			float distance = sqrt(dx*dx + dy*dy + dz*dz);
+
+			if(distance <= x1_radius)
+			{
+				first_stage_points.push_back(global_map[i]);
+			}
+		}
+
+		cout<<"First stage: found "<<first_stage_points.size()<<" points within "<<x1_radius<<"m radius"<<endl;
+
+		if(first_stage_points.size() < min_points)
+		{
+			cout<<"Not enough points for first stage RANSAC! Found: "<<first_stage_points.size()<<", need: "<<min_points<<endl;
+			first_plane_model[0] = 10;
+			first_plane_model[1] = 0;
+			first_plane_model[2] = 0;
+			first_plane_model[3] = 1;
+			center[0] = target_point.x;
+			center[1] = target_point.y;
+			center[2] = target_point.z;
+			return false;
+		}
+
+		// 第二步：对第一阶段的点云进行RANSAC平面拟合
+		std::vector<int> first_inliers;
+
+		pcl::SampleConsensusModelPlane<pcl::PointXYZI>::Ptr model_p1(new pcl::SampleConsensusModelPlane<pcl::PointXYZI>(first_stage_points.makeShared()));
+		pcl::RandomSampleConsensus<pcl::PointXYZI> ransac1(model_p1);
+		ransac1.setDistanceThreshold(ransac_radius); // 第一次RANSAC的距离阈值
+		ransac1.computeModel();
+		ransac1.getInliers(first_inliers);
+
+		Eigen::VectorXf first_coefficients;
+		ransac1.getModelCoefficients(first_coefficients);
+		first_plane_model = Eigen::Vector4f(first_coefficients(0), first_coefficients(1), first_coefficients(2), first_coefficients(3));
+
+		cout<<"First RANSAC: plane model = ("<<first_plane_model[0]<<", "<<first_plane_model[1]<<", "<<first_plane_model[2]<<", "<<first_plane_model[3]<<")"<<endl;
+		cout<<"First RANSAC: found "<<first_inliers.size()<<" inliers"<<endl;
+
+		// 计算平面中心点（使用第一阶段的点）
+		pcl::PointXYZ pc;
+		pc.x = 0;
+		pc.y = 0;
+		pc.z = 0;
+		for(int i = 0; i < first_stage_points.size(); i++)
+		{
+			pc.x += first_stage_points[i].x;
+			pc.y += first_stage_points[i].y;
+			pc.z += first_stage_points[i].z;
+		}
+
+		if(first_stage_points.size() > 0)
+		{
+			center[0] = pc.x / first_stage_points.size();
+			center[1] = pc.y / first_stage_points.size();
+			center[2] = pc.z / first_stage_points.size();
+		}
+		else
+		{
+			center[0] = target_point.x;
+			center[1] = target_point.y;
+			center[2] = target_point.z;
+		}
+
+		cout<<"Plane center: ("<<center[0]<<", "<<center[1]<<", "<<center[2]<<")"<<endl;
+
+		// 设置第一阶段检测到的平面点的强度值，便于在rviz中区分显示
+		cout<<"Setting first stage plane points intensity to "<<small_plane_intensity<<endl;
+		int first_plane_points_count = 0;
+		for(int i = 0; i < global_map.size(); i++)
+		{
+			float dx = global_map[i].x - target_point.x;
+			float dy = global_map[i].y - target_point.y;
+			float dz = global_map[i].z - target_point.z;
+			float distance_to_seed = sqrt(dx*dx + dy*dy + dz*dz);
+
+			// 如果点在x1范围内，设置其强度值
+			if(distance_to_seed <= x1_radius)
+			{
+				global_map[i].intensity = small_plane_intensity;
+				first_plane_points_count++;
+			}
+		}
+		cout<<"Set intensity for "<<first_plane_points_count<<" first stage points"<<endl;
+
+		return true;
+	}
+
+	// 第二次RANSAC平面检测函数 - 在大范围内提取精确平面
+	bool SecondRansacDetection(Eigen::Vector4f &final_plane_model,
+							   pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point,
+							   const Eigen::Vector4f &first_plane_model,
+							   float x2_radius=1.5, float y_distance_threshold=0.05, int min_points=20, 
+							   float plane_intensity=100.0)
+	{
+		cout<<"Starting second RANSAC plane detection..."<<endl;
+
+		// 第三步：在种子点附近x2米的范围内，根据第一次拟合的平面方程筛选点
+		pcl::PointCloud<pcl::PointXYZI> second_stage_points;
+		for(int i = 0; i < global_map.size(); i++)
+		{
+			float dx = global_map[i].x - target_point.x;
+			float dy = global_map[i].y - target_point.y;
+			float dz = global_map[i].z - target_point.z;
+			float distance_to_seed = sqrt(dx*dx + dy*dy + dz*dz);
+
+			// 首先检查是否在x2米范围内
+			if(distance_to_seed <= x2_radius)
+			{
+				// 计算点到第一次拟合平面的距离
+				float distance_to_plane = abs(first_plane_model[0] * global_map[i].x +
+											  first_plane_model[1] * global_map[i].y +
+											  first_plane_model[2] * global_map[i].z +
+											  first_plane_model[3]) /
+										  sqrt(first_plane_model[0]*first_plane_model[0] +
+											   first_plane_model[1]*first_plane_model[1] +
+											   first_plane_model[2]*first_plane_model[2]);
+
+				// 只有距离平面小于y米的点才被纳入第二阶段
+				if(distance_to_plane <= y_distance_threshold)
+				{
+					second_stage_points.push_back(global_map[i]);
+				}
+			}
+		}
+
+		cout<<"Second stage: found "<<second_stage_points.size()<<" points within "<<x2_radius<<"m radius and "<<y_distance_threshold<<"m from first plane"<<endl;
+
+		if(second_stage_points.size() < min_points+20)
+		{
+			cout<<"Not enough points for second stage RANSAC! Found: "<<second_stage_points.size()<<", need: "<<min_points<<endl;
+			// 如果第二阶段点数不够，使用第一阶段的结果
+			final_plane_model = first_plane_model;
+		}
+		else
+		{
+			// 第四步：对第二阶段的点云进行最终的RANSAC平面拟合
+			std::vector<int> second_inliers;
+
+			pcl::SampleConsensusModelPlane<pcl::PointXYZI>::Ptr model_p2(new pcl::SampleConsensusModelPlane<pcl::PointXYZI>(second_stage_points.makeShared()));
+			pcl::RandomSampleConsensus<pcl::PointXYZI> ransac2(model_p2);
+			ransac2.setDistanceThreshold(0.01); // 第二次RANSAC使用更严格的距离阈值
+			ransac2.computeModel();
+			ransac2.getInliers(second_inliers);
+
+			Eigen::VectorXf second_coefficients;
+			ransac2.getModelCoefficients(second_coefficients);
+			final_plane_model = Eigen::Vector4f(second_coefficients(0), second_coefficients(1), second_coefficients(2), second_coefficients(3));
+
+			cout<<"Second RANSAC: plane model = ("<<final_plane_model[0]<<", "<<final_plane_model[1]<<", "<<final_plane_model[2]<<", "<<final_plane_model[3]<<")"<<endl;
+			cout<<"Second RANSAC: found "<<second_inliers.size()<<" inliers"<<endl;
+		}
+
+		// 确保平面到激光雷达原点的距离为正（与相机平面保持一致的朝向约定）
+		if(final_plane_model[3] < 0)
+		{
+			final_plane_model = final_plane_model * -1.0;
+		}
+
+		cout<<"Final lidar plane = ("<<final_plane_model[0]<<", "<<final_plane_model[1]<<", "<<final_plane_model[2]<<", "<<final_plane_model[3]<<")"<<endl;
+
+		// 设置识别出的平面点的强度值，便于在rviz中可视化
+		cout<<"Setting plane points intensity to "<<plane_intensity<<endl;
+		int plane_points_count = 0;
+		for(int i = 0; i < global_map.size(); i++)
+		{
+			// 计算点到最终平面的距离
+			float distance_to_final_plane = abs(final_plane_model[0] * global_map[i].x +
+											   final_plane_model[1] * global_map[i].y +
+											   final_plane_model[2] * global_map[i].z +
+											   final_plane_model[3]) /
+										   sqrt(final_plane_model[0]*final_plane_model[0] +
+												final_plane_model[1]*final_plane_model[1] +
+												final_plane_model[2]*final_plane_model[2]);
+
+			// 计算点到种子点的距离
+			float dx = global_map[i].x - target_point.x;
+			float dy = global_map[i].y - target_point.y;
+			float dz = global_map[i].z - target_point.z;
+			float distance_to_seed = sqrt(dx*dx + dy*dy + dz*dz);
+
+			// 如果点在x2范围内且接近平面，则设置其强度值
+			if(distance_to_seed <= x2_radius && distance_to_final_plane <= y_distance_threshold)
+			{
+				global_map[i].intensity = plane_intensity;
+				plane_points_count++;
+			}
+		}
+		cout<<"Set intensity for "<<plane_points_count<<" plane points"<<endl;
+
+		cout<<"Second RANSAC plane detection completed."<<endl;
+		return true;
+	}
+
+
 	bool CheckBoardPlane(vector<Eigen::Vector4f> &p)
 	{
 		if(p.size()==3)
@@ -412,9 +609,21 @@ namespace PCLlib
 			Eigen::Vector4f p1=p[0];
 			Eigen::Vector4f p2=p[1];
 			Eigen::Vector4f p3=p[2];
-			if((abs(p1[0]*p2[0]+p1[1]*p2[1]+p1[2]*p2[2])<0.15)&&(abs(p3[0]*p2[0]+p3[1]*p2[1]+p3[2]*p2[2])<0.15)&&(abs(p1[0]*p3[0]+p1[1]*p3[1]+p1[2]*p3[2])<0.15))
+			
+			// 计算法向量点积
+			float dot12 = p1[0]*p2[0]+p1[1]*p2[1]+p1[2]*p2[2];
+			float dot13 = p1[0]*p3[0]+p1[1]*p3[1]+p1[2]*p3[2];
+			float dot23 = p2[0]*p3[0]+p2[1]*p3[1]+p2[2]*p3[2];
+			// 转换为角度（度）
+			float angle12 = acos(abs(dot12)) * 180.0 / M_PI;
+			float angle13 = acos(abs(dot13)) * 180.0 / M_PI;
+			float angle23 = acos(abs(dot23)) * 180.0 / M_PI;
+			std::cout<<"angle12: "<<angle12<<"°"<<std::endl;
+			std::cout<<"angle13: "<<angle13<<"°"<<std::endl;
+			std::cout<<"angle23: "<<angle23<<"°"<<std::endl;
+			
+			if((abs(dot12)<0.15)&&(abs(dot13)<0.15)&&(abs(dot23)<0.15))
 			{
-				//cout<<(p1[0]*p2[0]+p1[1]*p2[1]+p1[2]*p2[2])<<" "<<(p3[0]*p2[0]+p3[1]*p2[1]+p3[2]*p2[2])<<" "<<(p1[0]*p3[0]+p1[1]*p3[1]+p1[2]*p3[2])<<endl;
 				return true;
 			}
 		}

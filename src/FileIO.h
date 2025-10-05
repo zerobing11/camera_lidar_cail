@@ -34,6 +34,16 @@ namespace FileIO
       {
 	  f.getline(c,8000);
 	  content = c;
+	  
+	  // 去除前后空格
+	  size_t start = content.find_first_not_of(" \t\r\n");
+	  size_t end = content.find_last_not_of(" \t\r\n");
+	  if(start == string::npos) // 空行或只包含空格
+	  {
+	    continue;
+	  }
+	  content = content.substr(start, end - start + 1);
+	  
 	  if(content!="")
 	  {
 	      vector<string> p;
@@ -41,9 +51,24 @@ namespace FileIO
 	      vector<float> tmp;
 	      for(int i=0;i<p.size();i++)
 	      {
-		tmp.push_back(std::stof(p[i]));
+		// 跳过空字符串，避免stof转换错误
+		if(p[i].empty() || p[i] == "" || p[i] == " ")
+		{
+		  continue;
+		}
+		try
+		{
+		  tmp.push_back(std::stof(p[i]));
+		}
+		catch(const std::invalid_argument& e)
+		{
+		  // cout<<"[Warning] ReadTxt2Float: Invalid number format in "<<path<<": '"<<p[i]<<"', skipping."<<endl;
+		}
 	      }
-	      res.push_back(tmp);
+	      if(!tmp.empty())  // 只添加非空的行
+	      {
+		res.push_back(tmp);
+	      }
 	  }
       }
       f.close();
@@ -146,17 +171,43 @@ namespace FileIO
     {
 	  f.getline(buffer,5000);
 	  string content = buffer;
+	  
+	  // 去除前后空格
+	  size_t start = content.find_first_not_of(" \t\r\n");
+	  size_t end = content.find_last_not_of(" \t\r\n");
+	  if(start == string::npos) // 空行或只包含空格
+	  {
+	    continue;
+	  }
+	  content = content.substr(start, end - start + 1);
+	  
 	  vector<string> messages;
 	  if(content!="")
 	  {
 	    messages = read_format(content," ");
+	    if(messages.empty() || messages[0].empty())
+	    {
+	      continue;
+	    }
 	    string name = messages[0];
 	    cout<<name<<" ";
 	    vector<float> data;
 	    for(int i=1;i<messages.size();i++)
 	    {
-	      data.push_back(std::stof(messages[i]));
-	      cout<<std::stof(messages[i])<<" ";
+	      // 跳过空字符串，避免stof转换错误
+	      if(messages[i].empty() || messages[i] == "" || messages[i] == " ")
+	      {
+	        continue;
+	      }
+	      try
+	      {
+	        data.push_back(std::stof(messages[i]));
+	        cout<<std::stof(messages[i])<<" ";
+	      }
+	      catch(const std::invalid_argument& e)
+	      {
+	        // cout<<"[Warning] Invalid number format: '"<<messages[i]<<"', skipping."<<endl;
+	      }
 	    }
 	    cout<<endl;
 	    res.insert(pair<string,vector<float>>(name,data));
@@ -178,17 +229,49 @@ namespace FileIO
     {
 	  f.getline(buffer,5000);
 	  string content = buffer;
+	  
+	  // 去除前后空格
+	  size_t start = content.find_first_not_of(" \t\r\n");
+	  size_t end = content.find_last_not_of(" \t\r\n");
+	  if(start == string::npos) // 空行或只包含空格
+	  {
+	    continue;
+	  }
+	  content = content.substr(start, end - start + 1);
+	  
+	  // 跳过注释行
+	  if(content[0] == '#')
+	  {
+	    continue;
+	  }
+	  
 	  vector<string> messages;
 	  if(content!="")
 	  {
 	    messages = read_format(content," ");
+	    if(messages.empty() || messages[0].empty())
+	    {
+	      continue;
+	    }
 	    string name = messages[0];
 	    cout<<name<<" ";
 	    vector<float> data;
 	    for(int i=1;i<messages.size();i++)
 	    {
-	      data.push_back(std::stof(messages[i]));
-	      cout<<std::stof(messages[i])<<" ";
+	      // 跳过空字符串和注释，避免stof转换错误
+	      if(messages[i].empty() || messages[i] == "" || messages[i] == " " || messages[i][0] == '#')
+	      {
+	        break;  // 遇到注释符号，后面的内容都不处理
+	      }
+	      try
+	      {
+	        data.push_back(std::stof(messages[i]));
+	        cout<<std::stof(messages[i])<<" ";
+	      }
+	      catch(const std::invalid_argument& e)
+	      {
+	        // cout<<"[Warning] Invalid number format: '"<<messages[i]<<"', skipping."<<endl;
+	      }
 	    }
 	    cout<<endl;
 	    res.insert(pair<string,vector<float>>(name,data));

@@ -15,7 +15,7 @@ def rename_and_copy_images():
     重命名并复制图像文件
     """
     # 源目录和目标目录
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/app/images_2"
+    source_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/leftImg_pre"
     target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/leftImg"
     
     # 确保目标目录存在
