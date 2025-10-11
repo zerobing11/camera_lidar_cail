@@ -276,9 +276,9 @@ def process_lidar_image_sync(lidar_dir, image_dir, output_dir):
             closest_image, time_diff_ns = find_closest_image(lidar_timestamp_ns, image_files_with_timestamps)
             
             if closest_image:
-                # 复制对应的图像
+                # 复制对应的图像，保持原始文件名
                 image_basename = os.path.basename(closest_image)
-                aligned_image_path = os.path.join(aligned_image_dir, f"{lidar_basename}.png")
+                aligned_image_path = os.path.join(aligned_image_dir, image_basename)
                 
                 shutil.copy2(closest_image, aligned_image_path)
                 time_diff_ms = time_diff_ns / 1e6  # 转换为毫秒

@@ -1227,9 +1227,8 @@ namespace CAMERA
 		cout<<"Predefined distParameter = "<<endl;
 		cout<<distParameter<<endl<<endl;
 
-        //清空之前的外参数据
-        rotateMat.clear();
-        translateMat.clear();
+        // rotateMat.clear();
+        // translateMat.clear();
         
         cout<<"Start calculating camera extrinsic parameters using PnP..."<<endl;
         
@@ -1369,15 +1368,15 @@ namespace CAMERA
 			           cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 1);
 			
 			// 显示拼接后的对比图像
-			// cv::imshow("Intrinsic & Extrinsic Validation", merge_img_final);
+			cv::imshow("Intrinsic & Extrinsic Validation", merge_img_final);
 			
-			// 等待按键继续（ESC退出，其他键继续）
-			// int key = cv::waitKey(0);
-			// if(key == 27) // ESC键
-			// {
-			// 	cout<<"Validation stopped by user."<<endl;
-			// 	break;
-			// }
+			//等待按键继续（ESC退出，其他键继续）
+			int key = cv::waitKey(0);
+			if(key == 27) // ESC键
+			{
+				cout<<"Validation stopped by user."<<endl;
+				break;
+			}
 		}
 		
 		cout<<"Parameter validation completed!"<<endl;

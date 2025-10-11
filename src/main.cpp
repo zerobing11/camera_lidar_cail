@@ -402,9 +402,11 @@ int main(int argc, char **argv)
             0.0, 0.0, 0.0, 0.0, 0.0);
 
         Cam.calibration(predefined_intrinsic, predefined_distortion);//使用预定义内参并计算外参
-        Cam.show();//显示标定结果
+        // Cam.show();//显示标定结果
         Cam.GetIntrincMatrix(intrincMatrix);
         Cam.GetDistParameter(distParameter);
+        std::cout<<"intrinsic:"<<intrincMatrix<<std::endl;
+        std::cout<<"distortion:"<<distParameter<<std::endl;
         Cam.GetPlanesModels(cam_planes);//获取标定板平面模型
         cv::destroyAllWindows();
         // while(!pcdata1.isfinish())
@@ -434,7 +436,8 @@ int main(int argc, char **argv)
 
             int ind=camera_valid_frame[i];
             vector<string> name = read_format(imgnames[ind]," ");//读取点云文件
-            string filename=path_root+"/lidar/lidar_"+name[0]+".txt";
+            //这里是lidar所以是name[0]，上面的内参标定的相机的话就是name[1]
+            string filename=path_root+"/lidar/"+name[0]+".txt";
             vector<vector<float>> cloud_points = FileIO::ReadTxt2Float(filename);
             std::cout<<"cloud_points.size():"<<cloud_points.size()<<std::endl;
             target=Load_PointCloud(cloud_points);//加载当前帧点云为target
@@ -489,8 +492,8 @@ int main(int argc, char **argv)
                         // 第二次RANSAC检测
                         float current_plane_intensity = 80.0 + (j * 20.0);
                         PCLlib::SecondRansacDetection(plane_model, target, Bpoint,
-                                                     first_plane_model, 0.5, 0.03, 20, current_plane_intensity);
-                        
+                                                     first_plane_model, 0.4, 0.05, 20, current_plane_intensity);
+
                         tmp_plane_params.push_back(plane_model);
                         plane_center.push_back(plane_center_single);
                         
@@ -595,7 +598,7 @@ int main(int argc, char **argv)
                         
                         // 第二次RANSAC
                         PCLlib::SecondRansacDetection(plane_model, target, board_points[tmp_plane_params.size()],
-                                                     first_plane_model, 0.5, 0.03, 20, current_plane_intensity);
+                                                     first_plane_model, 0.4, 0.05, 20, current_plane_intensity);
                         
                         plane_center.push_back(center);
                         tmp_plane_params.push_back(plane_model);
@@ -704,33 +707,54 @@ int main(int argc, char **argv)
                         A(3*i+j,0) = (double)camPlanes[i][j](0);
                         A(3*i+j,1) = (double)camPlanes[i][j](1);
                         A(3*i+j,2) = (double)camPlanes[i][j](2);
-                        //b(3*i+j,0) = (double)lidarPlanes[i][j](3)-(double)camPlanes[i][j](3);
+                        // 直接的平面距离约束：n_c^T * t_cl = d_c - d_l
+                        b(3*i+j,0) = (double)camPlanes[i][j](3) - (double)lidarPlanes[i][j](3);
                     }
                 }
                 ICP::pose_estimation_3d3d (cam_normals,lidar_normals,Rcl,tcl);
                 cout<<"ICP tcl(should be equal to zero) = "<<tcl.transpose()<<endl;
                 cout<<"Final Rcl = "<<endl<<Rcl<<endl;
                 cout<<"2.Start translation vector Optimization!!!!!"<<endl;
-                for(int i=0;i<lidarPlanes.size();i++)
-                {
-                    for(int j=0;j<3;j++)
-                    {
-                        pl=Eigen::Vector3d((double)lidarCenters[i][j][0],(double)lidarCenters[i][j][1],(double)lidarCenters[i][j][2]);
-                        // pl[0]=(double)lidarCenters[i][j](0);
-                        // cout<<"1"<<endl;
-                        // pl[1]=(double)lidarCenters[i][j][1];
-                        // pl[2]=(double)lidarCenters[i][j][2];
-                        plc=Rcl*pl;
-                        cout<<"plc:"<<plc<<endl;
-                        b(3*i+j,0) =-(double)camPlanes[i][j][3]-((double)camPlanes[i][j][0]*pl[0]+(double)camPlanes[i][j][1]*pl[1]+(double)camPlanes[i][j][2]*pl[2]);
-                    }
-                }
+                cout<<"Using direct plane distance constraint method"<<endl;
+                // 基于平面中心点的方法
+
+                // for(int i=0;i<lidarPlanes.size();i++)
+                // {
+                //     for(int j=0;j<3;j++)
+                //     {
+                //         pl=Eigen::Vector3d((double)lidarCenters[i][j][0],(double)lidarCenters[i][j][1],(double)lidarCenters[i][j][2]);
+                //         // pl[0]=(double)lidarCenters[i][j](0);
+                //         // cout<<"1"<<endl;
+                //         // pl[1]=(double)lidarCenters[i][j][1];
+                //         // pl[2]=(double)lidarCenters[i][j][2];
+                //         plc=Rcl*pl;
+                //         cout<<"plc:"<<plc<<endl;
+                //         b(3*i+j,0) =-(double)camPlanes[i][j][3]-((double)camPlanes[i][j][0]*pl[0]+(double)camPlanes[i][j][1]*pl[1]+(double)camPlanes[i][j][2]*pl[2]);
+                //     }
+                // }
+
                 Eigen::EigenSolver<Eigen::MatrixXd> es( A.transpose()*A );
                 cout<<"A = "<<endl<<A<<endl;
                 cout<<"ATA = "<<endl<<A.transpose()*A<<endl;
                 cout<<"b = "<<endl<<b<<endl;
 
+                // 检查A矩阵的条件数
+                Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+                double cond = svd.singularValues()(0) / svd.singularValues()(svd.singularValues().size()-1);
+                cout<<"A matrix condition number = "<<cond<<endl;
+                
+                if(cond > 1e12) {
+                    cout<<"Warning: A matrix is ill-conditioned! condition number = "<<cond<<endl;
+                }
+
                 Eigen::MatrixXd tcl_xd = A.colPivHouseholderQr().solve(b);
+                
+                // 检查求解结果的有效性
+                if(!tcl_xd.allFinite()) {
+                    cout<<"Error: Translation solution contains NaN or Inf values!"<<endl;
+                    cout<<"tcl_xd = "<<tcl_xd.transpose()<<endl;
+                    return -1;
+                }
 
                 cout<<"求解tcl 矩阵的特征值 = "<<endl<<es.eigenvalues()<<endl;
                 tcl(0) = tcl_xd(0);
@@ -758,50 +782,40 @@ int main(int argc, char **argv)
                             to_string(distParameter.at<double>(0,2))+" "+
                             to_string(distParameter.at<double>(0,3))+" "+
                             to_string(distParameter.at<double>(0,4)));
-                FileIO::WriteSting2Txt(data_path,calibraion_res);
+                FileIO::WriteSting2Txt("/home/conf/Extrinsic.txt",calibraion_res);
 
                 vector<string> all_plane;
-                
-                // 添加文件头部信息
-                all_plane.push_back("# Plane equation: ax + by + cz + d = 0");
-                all_plane.push_back("# Each frame contains 3 planes");
-                all_plane.push_back("");
-                
                 for(int i=0;i<imgnames.size();i++)
                 {
                     if((cam_planes.find(i)!=cam_planes.end())&&(lidar_planes.find(i)!=lidar_planes.end()))
                     {
-                        all_plane.push_back("# Frame " + to_string(i));
-                        all_plane.push_back("# Plane 1:");
-                        all_plane.push_back("LiDAR: " + to_string(lidar_planes[i][0](0))+" "+to_string(lidar_planes[i][0](1))+" "+to_string(lidar_planes[i][0](2))+" "+to_string(lidar_planes[i][0](3)));
-                        all_plane.push_back("Camera: " + to_string(cam_planes[i][0](0))+" "+to_string(cam_planes[i][0](1))+" "+to_string(cam_planes[i][0](2))+" "+to_string(cam_planes[i][0](3)));
-                        all_plane.push_back("# Plane 2:");
-                        all_plane.push_back("LiDAR: " + to_string(lidar_planes[i][1](0))+" "+to_string(lidar_planes[i][1](1))+" "+to_string(lidar_planes[i][1](2))+" "+to_string(lidar_planes[i][1](3)));
-                        all_plane.push_back("Camera: " + to_string(cam_planes[i][1](0))+" "+to_string(cam_planes[i][1](1))+" "+to_string(cam_planes[i][1](2))+" "+to_string(cam_planes[i][1](3)));
-                        all_plane.push_back("# Plane 3:");
-                        all_plane.push_back("LiDAR: " + to_string(lidar_planes[i][2](0))+" "+to_string(lidar_planes[i][2](1))+" "+to_string(lidar_planes[i][2](2))+" "+to_string(lidar_planes[i][2](3)));
-                        all_plane.push_back("Camera: " + to_string(cam_planes[i][2](0))+" "+to_string(cam_planes[i][2](1))+" "+to_string(cam_planes[i][2](2))+" "+to_string(cam_planes[i][2](3)));
-                        all_plane.push_back("");  // 空行分隔不同帧
+                        all_plane.push_back(to_string(lidar_planes[i][0](0))+" "+to_string(lidar_planes[i][0](1))+" "+to_string(lidar_planes[i][0](2))+" "+to_string(lidar_planes[i][0](3))+
+                        " "+to_string(cam_planes[i][0](0))+" "+to_string(cam_planes[i][0](1))+" "+to_string(cam_planes[i][0](2))+" "+to_string(cam_planes[i][0](3)));
+                        all_plane.push_back(to_string(lidar_planes[i][1](0))+" "+to_string(lidar_planes[i][1](1))+" "+to_string(lidar_planes[i][1](2))+" "+to_string(lidar_planes[i][1](3))+
+                        " "+to_string(cam_planes[i][1](0))+" "+to_string(cam_planes[i][1](1))+" "+to_string(cam_planes[i][1](2))+" "+to_string(cam_planes[i][1](3)));
+                        all_plane.push_back(to_string(lidar_planes[i][2](0))+" "+to_string(lidar_planes[i][2](1))+" "+to_string(lidar_planes[i][2](2))+" "+to_string(lidar_planes[i][2](3))+
+                        " "+to_string(cam_planes[i][2](0))+" "+to_string(cam_planes[i][2](1))+" "+to_string(cam_planes[i][2](2))+" "+to_string(cam_planes[i][2](3)));
                     }
                 }
                 FileIO::WriteSting2Txt("/home/conf/Planes.txt",all_plane);
 
-                //求解完外参之后，将3D点投影到图像上进行比较
-                cout<<"3.Start 3D Points Projection!!!!!"<<endl;
-                cvNamedWindow("Image");
-                Eigen::Matrix3f Rcl_float;
-                Eigen::Vector3f tcl_float;
-                Eigen::Matrix3f K;
-                for(int i=0;i<3;i++)
-                {
-                    tcl_float[i] = (float)tcl[i];
-                    for(int j=0;j<3;j++)
-                    {
-                        Rcl_float(i,j) = (float)Rcl(i,j);
-                        K(i,j) = (float)intrincMatrix.at<double>(i,j);
-                    }
-                }
-                cout<<"K = "<<K<<endl;
+
+                // //求解完外参之后，将3D点投影到图像上进行比较
+                // cout<<"3.Start 3D Points Projection!!!!!"<<endl;
+                // cvNamedWindow("Image");
+                // Eigen::Matrix3f Rcl_float;
+                // Eigen::Vector3f tcl_float;
+                // Eigen::Matrix3f K;
+                // for(int i=0;i<3;i++)
+                // {
+                //     tcl_float[i] = (float)tcl[i];
+                //     for(int j=0;j<3;j++)
+                //     {
+                //         Rcl_float(i,j) = (float)Rcl(i,j);
+                //         K(i,j) = (float)intrincMatrix.at<double>(i,j);
+                //     }
+                // }
+                // cout<<"K = "<<K<<endl;
             }//能够找到配对的激光和视觉平面
         }//外参标定结束
         else
@@ -812,5 +826,6 @@ int main(int argc, char **argv)
     string path1,path2;
     path1="/home/conf/Planes.txt";
     path2="/home/conf/Extrinsic.txt";
+    std::cout<<"start calculate error"<<std::endl;
     calculateExtrinsicError(path1,path2);
 }
