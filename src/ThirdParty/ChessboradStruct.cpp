@@ -589,270 +589,280 @@ cv::Mat ChessboradStruct::growChessboard(cv::Mat chessboard, Corners& corners, i
  *              - 值越小：几何约束越宽松，允许更多变形的棋盘格
  *              - 推荐范围：0.8-2
  */
-void ChessboradStruct::chessboardsFromCorners( Corners& corners, std::vector<cv::Mat>& chessboards, float lamda)
-{
-	logd("Structure recovery:\n");
-    m_lamda = lamda;  // 保存能量函数权重参数
-    
-    // std::cout << "\n=== 棋盘格构建过程调试 ===" << std::endl;
-    // std::cout << "输入角点数量: " << corners.p.size() << std::endl;
-    // std::cout << "能量权重参数lamda: " << lamda << std::endl;
-    
-    int valid_initial_count = 0;
-    int energy_pass_count = 0;
-    int final_quality_count = 0;
-    int added_chessboards = 0;
-	
-	// 第一阶段：遍历所有角点，尝试以每个角点为起点构建棋盘格
-	for (int i = 0; i < corners.p.size(); i++)
-	{
-		// 调试信息：每128个角点输出一次进度
-		//if (i % 128 == 0)
-		//	printf("%d, %d\n", i, corners.p.size());//fyy
-	
-		// 步骤1：以当前角点为起点初始化一个候选棋盘格
-		// initChessboard会尝试找到该角点的最近邻角点，构建2x2的初始棋盘格
-		cv::Mat csbd = initChessboard(corners, i);
-		if (csbd.empty() == true)
-		{
-			continue;  // 如果无法初始化棋盘格，跳过当前角点
-		}
-		valid_initial_count++;
-		
-		// 步骤2：计算初始棋盘格的能量值
-		// 能量值越小表示棋盘格质量越好，能量值>0表示质量太差
-		float E = chessboardEnergy(csbd, corners);
-		if (E > 0){ continue; }  // 能量值>0，跳过质量差的候选棋盘格
-		energy_pass_count++;
-		
-		// 步骤3：从初始棋盘格开始，通过能量优化进行扩展
-		cv::Mat chessboard = csbd.clone();  // 复制初始棋盘格
-		int s = 0;  // 扩展步数计数器
-		
-		// 第二阶段：迭代扩展棋盘格，直到无法进一步优化
-		while (true)
-		{
-			s++;
-			// 计算当前棋盘格的能量值
-			float energy = chessboardEnergy(chessboard, corners);
-
-			// 步骤4：生成4个方向的扩展候选方案
-			// 分别尝试向上、下、左、右四个方向扩展棋盘格
-			std::vector<cv::Mat> proposal(4);
-			std::vector<float> p_energy(4);
-			
-			// 计算每个扩展方案的能量值
-			for (int j = 0; j < 4; j++)
-			{
-				proposal[j] = growChessboard(chessboard, corners, j);  // 生成第j个方向的扩展方案
-				p_energy[j] = chessboardEnergy(proposal[j], corners);  // 计算该方案的能量值
-			}
-			
-			// 步骤5：选择能量值最小的扩展方案（最优方案）
-			float min_value = p_energy[0];
-			int min_idx = 0;
-			for (int i0 = 1; i0 < p_energy.size(); i0++)
-			{
-				if (min_value > p_energy[i0])
-				{
-					min_value = p_energy[i0];
-					min_idx = i0;
-				}
-			}
-			
-			// 步骤6：如果最优方案的能量值比当前棋盘格更低，则接受该方案
-			cv::Mat chessboardt;
-			if (p_energy[min_idx] < energy)
-			{
-				chessboardt = proposal[min_idx];
-				chessboard = chessboardt.clone();  // 更新当前棋盘格
-			}
-			else
-			{
-				break;  // 无法进一步优化，退出扩展循环
-			}
-		}//end while
-
-		// 第三阶段：质量筛选，只保留高质量的棋盘格
-		// 能量值<-10表示棋盘格质量足够好，可以加入候选列表
-		float final_energy = chessboardEnergy(chessboard, corners);
-		if (final_energy < -10)
-		{
-			final_quality_count++;
-			// 第四阶段：重叠检测与处理
-			// 检查新发现的棋盘格是否与已存在的棋盘格有重叠
-			cv::Mat overlap = cv::Mat::zeros(cv::Size(2, chessboards.size()), CV_32FC1);
-			
-			// 遍历所有已存在的棋盘格，检查重叠情况
-			for (int j = 0; j < chessboards.size(); j++)
-			{
-				bool isbreak = false;
-				// 检查当前棋盘格与第j个已存在棋盘格是否有共同角点
-				for (int k = 0; k < chessboards[j].size().area(); k++)
-				{
-					int refv = chessboards[j].at<int>(k / chessboards[j].cols, k % chessboards[j].cols);
-					for (int l = 0; l < chessboard.size().area(); l++)
-					{
-						int isv = chessboard.at<int>(l / chessboard.cols, l % chessboard.cols);
-						if (refv == isv)  // 发现共同角点，表示有重叠
-						{
-							overlap.at<float>(j, 0) = 1.0;  // 标记有重叠
-							float s = chessboardEnergy(chessboards[j], corners);  // 计算已存在棋盘格的能量
-							overlap.at<float>(j, 1) = s;  // 保存能量值用于比较
-							isbreak = true;
-							break;
-						}
-					}
-				}
-			}//endfor
-
-			// 第五阶段：根据重叠情况决定是否添加新棋盘格
-			// 检查是否存在重叠
-			bool isoverlap = false;
-			for (int i0 = 0; i0 < overlap.rows; i0++)
-			{
-				if (overlap.empty() == false)
-				{
-					if (fabs(overlap.at<float>(i0, 0)) > 0.000001)  // 检查是否有重叠标记
-					{
-						isoverlap = true;
-						break;
-					}
-				}
-			}
-			
-			if (isoverlap == false)
-			{
-				// 情况1：无重叠，直接添加新棋盘格
-				chessboards.push_back(chessboard);
-				added_chessboards++;
-			}
-			else
-			{
-				// 情况2：存在重叠，需要比较质量并决定替换策略
-				bool flagpush = true;  // 是否应该添加新棋盘格
-				std::vector<bool> flagerase(overlap.rows);  // 标记哪些已存在棋盘格应该被删除
-				for (int m = 0; m < flagerase.size(); m++)
-				{
-					flagerase[m] = false;
-				}
-				
-				float ce = chessboardEnergy(chessboard, corners);  // 新棋盘格的能量值
-				
-				// 比较新棋盘格与重叠的已存在棋盘格的质量
-				for (int i1 = 0; i1 < overlap.rows; i1++)
-				{
-					if (fabs(overlap.at<float>(i1, 0)) > 0.0001)  // 如果存在重叠
-					{	
-						bool isb1 = overlap.at<float>(i1, 1) > ce;  // 比较能量值
-
-						// 使用整数比较避免浮点数精度问题
-						int a = int(overlap.at<float>(i1, 1) * 1000);
-						int b = int(ce * 1000);
-
-						bool isb2 = a > b;
-						if (isb1 != isb2)
-							printf("find bug!\n");  // 调试信息
-
-						if (isb2)  // 如果新棋盘格质量更好（能量值更小）
-						{	
-							flagerase[i1] = true;  // 标记删除已存在的棋盘格
-						}
-						else  // 如果已存在棋盘格质量更好
-						{
-							flagpush = false;  // 不添加新棋盘格
-						}
-					}
-				}//end for
-
-				// 执行替换操作
-				if (flagpush == true)  // 如果决定添加新棋盘格
-				{
-					// 删除质量较差的已存在棋盘格
-					for (int i1 = 0; i1 < chessboards.size();)
-					{
-						std::vector<cv::Mat>::iterator it = chessboards.begin() + i1;
-						std::vector<bool>::iterator it1 = flagerase.begin() + i1;
-						if (*it1 == true)  // 如果标记为删除
-						{
-							chessboards.erase(it);  // 删除棋盘格
-							flagerase.erase(it1);   // 删除标记
-							i1 = 0;  // 重新开始遍历（因为删除了元素）
-						}
-						i1++;
-					}
-					chessboards.push_back(chessboard);  // 添加新棋盘格
-					added_chessboards++;
-				}
-			}//endif
-		}//endif
-	}//end for 
-	
-	// 输出统计信息
-	// std::cout << "\n=== 棋盘格构建统计 ===" << std::endl;
-	// std::cout << "遍历角点数量: " << corners.p.size() << std::endl;
-	// std::cout << "成功初始化棋盘格数量: " << valid_initial_count << std::endl;
-	// std::cout << "通过初始能量检查数量: " << energy_pass_count << std::endl;
-	// std::cout << "通过最终质量检查数量: " << final_quality_count << std::endl;
-	// std::cout << "最终添加的棋盘格数量: " << added_chessboards << std::endl;
-	// std::cout << "当前棋盘格总数: " << chessboards.size() << std::endl;
-	// 
-	// if(chessboards.size() == 0) {
-	// 	std::cout << "\n❌ 没有检测到棋盘格的可能原因:" << std::endl;
-	// 	if(valid_initial_count == 0) {
-	// 		std::cout << "  - 角点数量不足，无法初始化任何棋盘格" << std::endl;
-	// 		std::cout << "  - 建议：降低角点检测阈值" << std::endl;
-	// 	} else if(energy_pass_count == 0) {
-	// 		std::cout << "  - 初始棋盘格质量都太差（能量值>0）" << std::endl;
-	// 		std::cout << "  - 建议：降低棋盘格识别阈值lamda" << std::endl;
-	// 	} else if(final_quality_count == 0) {
-	// 		std::cout << "  - 扩展后的棋盘格质量仍不达标（能量值>-10）" << std::endl;
-	// 		std::cout << "  - 建议：调整能量阈值或改善图像质量" << std::endl;
-	// 	} else {
-	// 		std::cout << "  - 棋盘格被重叠检测过滤掉了" << std::endl;
-	// 		std::cout << "  - 建议：检查重叠检测逻辑或图像中的棋盘格布局" << std::endl;
-	// 	}
-	// }
-}
-#define BOLDGREEN   "\033[1m\033[32m"      /* Bold Green */
-void ChessboradStruct::drawchessboard(cv::Mat img, Corners& corners, std::vector<cv::Mat>& chessboards, char * title, int t_, cv::Rect rect)
-{
-        printf("end!\n");
-        
-	cv::RNG rng(0xFFFFFFFF);
-	std::string s("If it's useful, please give a star ^-^.");
-	std::string s1("https://github.com/onlyliucat\n");
-	//std::cout<<BOLDBLUE<<s<<std::endl<<BOLDGREEN<<s1<<std::endl;//fyy
-	cv::Mat disp = img.clone();
-
-	if (disp.channels() < 3)
-		cv::cvtColor(disp, disp, CV_GRAY2BGR);
-	float scale = 0.3;
-	int n = 8;
-	if (img.rows < 2000 || img.cols < 2000)
-	{
-		scale = 1;
-		n = 2;
-	}
-	for (int k = 0; k < chessboards.size(); k++)
-	{
-		cv::Scalar s(rng.uniform(0.0, 1.0), rng.uniform(0.0, 1.0), rng.uniform(0.0, 1.0));
-		s = s * 255;
-	
-		for (int i = 0; i < chessboards[k].rows; i++)
-			for (int j = 0; j < chessboards[k].cols; j++)
-			{
-				int d = chessboards[k].at<int>(i, j);
-				//cv::circle(disp, cv::Point2f(corners.p[d].x + rect.x, corners.p[d].y + rect.y), n, s, n);
-				cv::putText(disp,std::to_string(d),cv::Point2f(corners.p[d].x + rect.x, corners.p[d].y + rect.y),cv::FONT_HERSHEY_SIMPLEX,0.3,cv::Scalar(255,255,255),1,1);
-			}
-	}
-	cv::Mat SmallMat;
-	cv::resize(disp, SmallMat, cv::Size(), scale, scale);
-	cv::namedWindow(title);
-	cv::imshow(title, SmallMat);
-	cv::waitKey(t_);
-}
+ void ChessboradStruct::chessboardsFromCorners( Corners& corners, std::vector<cv::Mat>& chessboards, float lamda)
+ {
+	 logd("Structure recovery:\n");
+	 m_lamda = lamda;  // 保存能量函数权重参数
+	 
+	 // 棋盘格点数约束（作为局部变量）
+	 const int target_corner_count = 12;  // 目标角点总数（3x4 或 4x3）
+	 
+	//  std::cout << "\n=== 棋盘格构建过程调试 ===" << std::endl;
+	//  std::cout << "输入角点数量: " << corners.p.size() << std::endl;
+	//  std::cout << "能量权重参数lamda: " << lamda << std::endl;
+	//  std::cout << "目标棋盘格角点总数: " << target_corner_count << std::endl;
+	 
+	 int valid_initial_count = 0;
+	 int energy_pass_count = 0;
+	 int final_quality_count = 0;
+	 int added_chessboards = 0;
+	 
+	 // 第一阶段：遍历所有角点，尝试以每个角点为起点构建棋盘格
+	 for (int i = 0; i < corners.p.size(); i++)
+	 {
+		 // 调试信息：每128个角点输出一次进度
+		 //if (i % 128 == 0)
+		 //	printf("%d, %d\n", i, corners.p.size());//fyy
+	 
+		 // 步骤1：以当前角点为起点初始化一个候选棋盘格
+		 // initChessboard会尝试找到该角点的最近邻角点，构建2x2的初始棋盘格
+		 cv::Mat csbd = initChessboard(corners, i);
+		 if (csbd.empty() == true)
+		 {
+			 continue;  // 如果无法初始化棋盘格，跳过当前角点
+		 }
+		 valid_initial_count++;
+		 
+		 // 步骤2：计算初始棋盘格的能量值
+		 // 能量值越小表示棋盘格质量越好，能量值>0表示质量太差
+		 float E = chessboardEnergy(csbd, corners);
+		 if (E > 0){ continue; }  // 能量值>0，跳过质量差的候选棋盘格
+		 energy_pass_count++;
+		 
+		 // 步骤3：从初始棋盘格开始，通过能量优化进行扩展
+		 cv::Mat chessboard = csbd.clone();  // 复制初始棋盘格
+		 int s = 0;  // 扩展步数计数器
+		 
+		 // 第二阶段：迭代扩展棋盘格，直到无法进一步优化或达到目标点数
+		 while (true)
+		 {
+			 s++;
+			 // 计算当前棋盘格的能量值
+			 float energy = chessboardEnergy(chessboard, corners);
+ 
+			 // 检查是否已达到目标角点数
+			 int current_corner_count = chessboard.rows * chessboard.cols;
+			 if (current_corner_count >= target_corner_count)
+			 {
+				 // 如果已达到目标角点数，停止扩展
+				 break;
+			 }
+ 
+			 // 步骤4：生成4个方向的扩展候选方案
+			 // 分别尝试向上、下、左、右四个方向扩展棋盘格
+			 std::vector<cv::Mat> proposal(4);
+			 std::vector<float> p_energy(4);
+			 
+			 // 计算每个扩展方案的能量值，并检查点数约束
+			 for (int j = 0; j < 4; j++)
+			 {
+				 proposal[j] = growChessboard(chessboard, corners, j);  // 生成第j个方向的扩展方案
+				 
+				 // 检查扩展后的角点数是否超过目标
+				 if (!proposal[j].empty())
+				 {
+					 int proposal_corner_count = proposal[j].rows * proposal[j].cols;
+					 if (proposal_corner_count > target_corner_count)
+					 {
+						 p_energy[j] = std::numeric_limits<float>::max();  // 设置为无效（能量值最大）
+					 }
+					 else
+					 {
+						 p_energy[j] = chessboardEnergy(proposal[j], corners);  // 计算该方案的能量值
+					 }
+				 }
+				 else
+				 {
+					 p_energy[j] = std::numeric_limits<float>::max();
+				 }
+			 }
+			 
+			 // 步骤5：选择能量值最小的扩展方案（最优方案）
+			 float min_value = p_energy[0];
+			 int min_idx = 0;
+			 for (int i0 = 1; i0 < p_energy.size(); i0++)
+			 {
+				 if (min_value > p_energy[i0])
+				 {
+					 min_value = p_energy[i0];
+					 min_idx = i0;
+				 }
+			 }
+			 
+			 // 步骤6：如果最优方案的能量值比当前棋盘格更低，则接受该方案
+			 cv::Mat chessboardt;
+			 if (p_energy[min_idx] < energy)
+			 {
+				 chessboardt = proposal[min_idx];
+				 chessboard = chessboardt.clone();  // 更新当前棋盘格
+			 }
+			 else
+			 {
+				 break;  // 无法进一步优化，退出扩展循环
+			 }
+		 }//end while
+ 
+		 // 第三阶段：质量筛选，只保留高质量的棋盘格
+		 // 能量值<-10表示棋盘格质量足够好，可以加入候选列表
+		 float final_energy = chessboardEnergy(chessboard, corners);
+		 
+		 // 检查角点数是否完全匹配目标要求
+		 int final_corner_count = chessboard.rows * chessboard.cols;
+		 bool corner_count_match = (final_corner_count == target_corner_count);
+		 
+		 if (final_energy < -10 && corner_count_match)
+		 {
+			 final_quality_count++;
+			 // 第四阶段：重叠检测与处理
+			 // 检查新发现的棋盘格是否与已存在的棋盘格有重叠
+			 cv::Mat overlap = cv::Mat::zeros(cv::Size(2, chessboards.size()), CV_32FC1);
+			 
+			 // 遍历所有已存在的棋盘格，检查重叠情况
+			 for (int j = 0; j < chessboards.size(); j++)
+			 {
+				 bool isbreak = false;
+				 // 检查当前棋盘格与第j个已存在棋盘格是否有共同角点
+				 for (int k = 0; k < chessboards[j].size().area(); k++)
+				 {
+					 int refv = chessboards[j].at<int>(k / chessboards[j].cols, k % chessboards[j].cols);
+					 for (int l = 0; l < chessboard.size().area(); l++)
+					 {
+						 int isv = chessboard.at<int>(l / chessboard.cols, l % chessboard.cols);
+						 if (refv == isv)  // 发现共同角点，表示有重叠
+						 {
+							 overlap.at<float>(j, 0) = 1.0;  // 标记有重叠
+							 float s = chessboardEnergy(chessboards[j], corners);  // 计算已存在棋盘格的能量
+							 overlap.at<float>(j, 1) = s;  // 保存能量值用于比较
+							 isbreak = true;
+							 break;
+						 }
+					 }
+				 }
+			 }//endfor
+ 
+			 // 第五阶段：根据重叠情况决定是否添加新棋盘格
+			 // 检查是否存在重叠
+			 bool isoverlap = false;
+			 for (int i0 = 0; i0 < overlap.rows; i0++)
+			 {
+				 if (overlap.empty() == false)
+				 {
+					 if (fabs(overlap.at<float>(i0, 0)) > 0.000001)  // 检查是否有重叠标记
+					 {
+						 isoverlap = true;
+						 break;
+					 }
+				 }
+			 }
+			 
+			 if (isoverlap == false)
+			 {
+				 // 情况1：无重叠，直接添加新棋盘格
+				 chessboards.push_back(chessboard);
+				 added_chessboards++;
+			 }
+			 else
+			 {
+				 // 情况2：存在重叠，需要比较质量并决定替换策略
+				 bool flagpush = true;  // 是否应该添加新棋盘格
+				 std::vector<bool> flagerase(overlap.rows);  // 标记哪些已存在棋盘格应该被删除
+				 for (int m = 0; m < flagerase.size(); m++)
+				 {
+					 flagerase[m] = false;
+				 }
+				 
+				 float ce = chessboardEnergy(chessboard, corners);  // 新棋盘格的能量值
+				 
+				 // 比较新棋盘格与重叠的已存在棋盘格的质量
+				 for (int i1 = 0; i1 < overlap.rows; i1++)
+				 {
+					 if (fabs(overlap.at<float>(i1, 0)) > 0.0001)  // 如果存在重叠
+					 {	
+						 bool isb1 = overlap.at<float>(i1, 1) > ce;  // 比较能量值
+ 
+						 // 使用整数比较避免浮点数精度问题
+						 int a = int(overlap.at<float>(i1, 1) * 1000);
+						 int b = int(ce * 1000);
+ 
+						 bool isb2 = a > b;
+						 if (isb1 != isb2)
+							 printf("find bug!\n");  // 调试信息
+ 
+						 if (isb2)  // 如果新棋盘格质量更好（能量值更小）
+						 {	
+							 flagerase[i1] = true;  // 标记删除已存在的棋盘格
+						 }
+						 else  // 如果已存在棋盘格质量更好
+						 {
+							 flagpush = false;  // 不添加新棋盘格
+						 }
+					 }
+				 }//end for
+ 
+				 // 执行替换操作
+				 if (flagpush == true)  // 如果决定添加新棋盘格
+				 {
+					 // 删除质量较差的已存在棋盘格
+					 for (int i1 = 0; i1 < chessboards.size();)
+					 {
+						 std::vector<cv::Mat>::iterator it = chessboards.begin() + i1;
+						 std::vector<bool>::iterator it1 = flagerase.begin() + i1;
+						 if (*it1 == true)  // 如果标记为删除
+						 {
+							 chessboards.erase(it);  // 删除棋盘格
+							 flagerase.erase(it1);   // 删除标记
+							 i1 = 0;  // 重新开始遍历（因为删除了元素）
+						 }
+						 i1++;
+					 }
+					 chessboards.push_back(chessboard);  // 添加新棋盘格
+					 added_chessboards++;
+				 }
+			 }//endif
+		 }//endif
+	 }//end for 
+	 
+ }
+ 
+// #define BOLDGREEN   "\033[1m\033[32m"      /* Bold Green */
+// void ChessboradStruct::drawchessboard(cv::Mat img, Corners& corners, std::vector<cv::Mat>& chessboards, char * title, int t_, cv::Rect rect)
+// {
+//         printf("end!\n");
+//
+// 	cv::RNG rng(0xFFFFFFFF);
+// 	std::string s("If it's useful, please give a star ^-^.");
+// 	std::string s1("https://github.com/onlyliucat\n");
+// 	//std::cout<<BOLDBLUE<<s<<std::endl<<BOLDGREEN<<s1<<std::endl;//fyy
+// 	cv::Mat disp = img.clone();
+//
+// 	if (disp.channels() < 3)
+// 		cv::cvtColor(disp, disp, CV_GRAY2BGR);
+// 	float scale = 0.3;
+// 	int n = 8;
+// 	if (img.rows < 2000 || img.cols < 2000)
+// 	{
+// 		scale = 1;
+// 		n = 2;
+// 	}
+// 	for (int k = 0; k < chessboards.size(); k++)
+// 	{
+// 		cv::Scalar s(rng.uniform(0.0, 1.0), rng.uniform(0.0, 1.0), rng.uniform(0.0, 1.0));
+// 		s = s * 255;
+//
+// 		for (int i = 0; i < chessboards[k].rows; i++)
+// 			for (int j = 0; j < chessboards[k].cols; j++)
+// 			{
+// 				int d = chessboards[k].at<int>(i, j);
+// 				//cv::circle(disp, cv::Point2f(corners.p[d].x + rect.x, corners.p[d].y + rect.y), n, s, n);
+// 				cv::putText(disp,std::to_string(d),cv::Point2f(corners.p[d].x + rect.x, corners.p[d].y + rect.y),cv::FONT_HERSHEY_SIMPLEX,0.3,cv::Scalar(255,255,255),1,1);
+// 			}
+// 	}
+// 	cv::Mat SmallMat;
+// 	cv::resize(disp, SmallMat, cv::Size(), scale, scale);
+// 	cv::namedWindow(title);
+// 	cv::imshow(title, SmallMat);
+// 	cv::waitKey(t_);
+// }
 
 
 

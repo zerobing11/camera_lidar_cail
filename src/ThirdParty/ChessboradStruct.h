@@ -23,7 +23,7 @@ public:
 	void predictCorners(std::vector<cv::Vec2f>& p1, std::vector<cv::Vec2f>& p2, std::vector<cv::Vec2f>& p3, std::vector<cv::Vec2f>& pred);
 	cv::Mat growChessboard(cv::Mat chessboard, Corners& corners, int border_type);
 	void assignClosestCorners(std::vector<cv::Vec2f>&cand, std::vector<cv::Vec2f>&pred, std::vector<int> &idx);
-	void drawchessboard(cv::Mat img, Corners& corners, std::vector<cv::Mat>& chessboards, const char * title = "chessboard", int t = 0, cv::Rect rect = cv::Rect(0,0,0,0));
+	// void drawchessboard(cv::Mat img, Corners& corners, std::vector<cv::Mat>& chessboards, const char * title = "chessboard", int t = 0, cv::Rect rect = cv::Rect(0,0,0,0));
 	
 	cv::Mat chessboard;
 	float m_lamda;

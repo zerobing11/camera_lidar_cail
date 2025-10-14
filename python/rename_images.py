@@ -15,8 +15,8 @@ def rename_and_copy_images():
     重命名并复制图像文件
     """
     # 源目录和目标目录
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/leftImg_pre"
-    target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/leftImg"
+    source_dir = "/home/lz/camera_lidar_cail/src/data/leftImg_pre"
+    target_dir = "/home/lz/camera_lidar_cail/src/data/leftImg"
     
     # 确保目标目录存在
     os.makedirs(target_dir, exist_ok=True)
@@ -53,10 +53,10 @@ def create_names_file():
     """
     创建names.txt文件，包含图像和lidar文件的映射关系
     """
-    names_file = "/home/lz/Camera-Lidar-Calibration-master/src/data/names.txt"
+    names_file = "/home/lz/camera_lidar_cail/src/data/names.txt"
     
     # 获取图像文件数量
-    target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/leftImg"
+    target_dir = "/home/lz/camera_lidar_cail/src/data/leftImg"
     image_files = glob.glob(os.path.join(target_dir, "left_*.png"))
     num_images = len(image_files)
     
@@ -84,7 +84,7 @@ def main():
     print("=" * 60)
     
     # 检查源目录是否存在
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/app/images"
+    source_dir = "/home/lz/camera_lidar_cail/app/images"
     if not os.path.exists(source_dir):
         print(f"错误: 源目录不存在 - {source_dir}")
         return

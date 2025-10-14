@@ -859,18 +859,7 @@ namespace CAMERA
         corners_s.score.clear();
     }
 
-    /**
-     * @brief 添加并处理一帧图像用于相机标定
-     * @param path 图像文件路径
-     * @return bool 返回true表示该帧被选中用于标定，false表示未被选中
-     * 
-     * 该函数的主要功能：
-     * 1. 读取并预处理图像
-     * 2. 检测棋盘格角点
-     * 3. 验证帧的有效性
-     * 4. 选择有效帧用于标定
-     * 5. 处理无效帧的光流跟踪
-     */
+
     bool Camera::add(string path)
     {
         // 读取原始图像（彩色模式）
@@ -908,169 +897,169 @@ namespace CAMERA
         //     cout << "角点质量分数范围: [" << *min_element(corners_s.score.begin(), corners_s.score.end()) 
         //          << ", " << *max_element(corners_s.score.begin(), corners_s.score.end()) << "]" << endl;
         // }
-        
+
+ //由此往下是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
         // 可视化角点并保存图像
-        // cv::Mat corner_vis_img = org_img.clone();
-        // for(int i = 0; i < corners_s.p.size(); i++) {
-        //     cv::Point2f corner_point = corners_s.p[i];
-        //     // 根据角点质量分数设置颜色：红色(低质量) -> 黄色(中等) -> 绿色(高质量)
-        //     float score = corners_s.score[i];
-        //     cv::Scalar color;
-        //     if(score < 0.1) {
-        //         color = cv::Scalar(0, 0, 255); // 红色 - 低质量
-        //     } else if(score < 0.15) {
-        //         color = cv::Scalar(0, 165, 255); // 橙色 - 中等质量
-        //     } else {
-        //         color = cv::Scalar(0, 255, 0); // 绿色 - 高质量
-        //     }
-        //     
-        //     // 画角点圆圈
-        //     cv::circle(corner_vis_img, corner_point, 6, color, 2);
-        //     // 标注角点序号
-        //     cv::putText(corner_vis_img, std::to_string(i), 
-        //                cv::Point2f(corner_point.x + 8, corner_point.y - 8),
-        //                cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
-        // }
-        // 
-        // // 创建保存目录
-        // string corner_debug_dir = path_root + "/img_corner_test";
-        // string mkdir_cmd = "mkdir -p " + corner_debug_dir;
-        // system(mkdir_cmd.c_str());
-        // 
-        // // 保存角点可视化图像
-        // string corner_save_path = corner_debug_dir + "/frame_" + 
-        //                          std::to_string(img_indx) + "_corners.png";
-        // cv::imwrite(corner_save_path, corner_vis_img);
-        // cout << "角点可视化图像已保存到: " << corner_save_path << endl;
+        cv::Mat corner_vis_img = org_img.clone();
+        for(int i = 0; i < corners_s.p.size(); i++) {
+            cv::Point2f corner_point = corners_s.p[i];
+            // 根据角点质量分数设置颜色：红色(低质量) -> 黄色(中等) -> 绿色(高质量)
+            float score = corners_s.score[i];
+            cv::Scalar color;
+            if(score < 0.1) {
+                color = cv::Scalar(0, 0, 255); // 红色 - 低质量
+            } else if(score < 0.15) {
+                color = cv::Scalar(0, 165, 255); // 橙色 - 中等质量
+            } else {
+                color = cv::Scalar(0, 255, 0); // 绿色 - 高质量
+            }
+            
+            // 画角点圆圈
+            cv::circle(corner_vis_img, corner_point, 6, color, 2);
+            // 标注角点序号
+            cv::putText(corner_vis_img, std::to_string(i), 
+                       cv::Point2f(corner_point.x + 8, corner_point.y - 8),
+                       cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
+        }
         
+        // 创建保存目录
+        string corner_debug_dir = path_root + "/img_corner_test";
+        string mkdir_cmd = "mkdir -p " + corner_debug_dir;
+        system(mkdir_cmd.c_str());
+        
+        // 保存角点可视化图像
+        string corner_save_path = corner_debug_dir + "/frame_" + 
+                                 std::to_string(img_indx) + "_corners.png";
+        cv::imwrite(corner_save_path, corner_vis_img);
+        cout << "角点可视化图像已保存到: " << corner_save_path << endl;
+//由此往上是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
+
         ImageChessesStruct ics;
         chessboardstruct.chessboardsFromCorners(corners_s, chessboards, chessboard_threshold);
         
         // 调试信息：棋盘格识别结果
          cout << "识别到的棋盘格数量: " << chessboards.size() << endl;
-        // for(int i = 0; i < chessboards.size(); i++)
-        // {
-        //     cout << "棋盘格" << i << ": " << chessboards[i].rows << "x" << chessboards[i].cols 
-        //          << " (角点数=" << chessboards[i].rows * chessboards[i].cols << ")" << endl;
-        // }
-        // cout << "期望: 3个棋盘格，每个3x4(12个角点)" << endl;
-        
+
+
+//由此往下是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
         // 可视化棋盘格识别结果
-        // cv::Mat chessboard_vis_img = org_img.clone();
-        // vector<cv::Scalar> board_colors = {
-        //     cv::Scalar(255, 0, 0),   // 蓝色
-        //     cv::Scalar(0, 255, 0),   // 绿色  
-        //     cv::Scalar(0, 0, 255),   // 红色
-        //     cv::Scalar(255, 255, 0), // 青色
-        //     cv::Scalar(255, 0, 255), // 品红色
-        // };
-        // 
-        // for(int board_idx = 0; board_idx < chessboards.size() && board_idx < 5; board_idx++)
-        // {
-        //     cv::Scalar color = board_colors[board_idx];
-        //     cv::Mat& board = chessboards[board_idx];
-        //     
-        //     cout << "绘制棋盘格" << board_idx << "的角点分布..." << endl;
-        //     
-        //     for(int row = 0; row < board.rows; row++)
-        //     {
-        //         for(int col = 0; col < board.cols; col++)
-        //         {
-        //             int corner_idx = board.at<int>(row, col);
-        //             if(corner_idx >= 0 && corner_idx < corners_s.p.size())
-        //             {
-        //                 cv::Point2f corner_point = corners_s.p[corner_idx];
-        //                 
-        //                 // 画角点圆圈
-        //                 cv::circle(chessboard_vis_img, corner_point, 8, color, 3);
-        //                 
-        //                 // 标注棋盘格内的位置(row,col)
-        //                 string pos_label = "(" + std::to_string(row) + "," + std::to_string(col) + ")";
-        //                 cv::putText(chessboard_vis_img, pos_label,
-        //                            cv::Point2f(corner_point.x + 10, corner_point.y - 10),
-        //                            cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1);
-        //                 
-        //                 // 画连接线构成网格
-        //                 if(col < board.cols - 1) // 水平连线
-        //                 {
-        //                     int next_corner_idx = board.at<int>(row, col + 1);
-        //                     if(next_corner_idx >= 0 && next_corner_idx < corners_s.p.size())
-        //                     {
-        //                         cv::Point2f next_corner = corners_s.p[next_corner_idx];
-        //                         cv::line(chessboard_vis_img, corner_point, next_corner, color, 2);
-        //                     }
-        //                 }
-        //                 if(row < board.rows - 1) // 垂直连线
-        //                 {
-        //                     int next_corner_idx = board.at<int>(row + 1, col);
-        //                     if(next_corner_idx >= 0 && next_corner_idx < corners_s.p.size())
-        //                     {
-        //                         cv::Point2f next_corner = corners_s.p[next_corner_idx];
-        //                         cv::line(chessboard_vis_img, corner_point, next_corner, color, 2);
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     
-        //     // 在棋盘格左上角标注棋盘格编号和尺寸
-        //     if(board.rows > 0 && board.cols > 0)
-        //     {
-        //         int first_corner_idx = board.at<int>(0, 0);
-        //         if(first_corner_idx >= 0 && first_corner_idx < corners_s.p.size())
-        //         {
-        //             cv::Point2f first_corner = corners_s.p[first_corner_idx];
-        //             string board_label = "Board" + std::to_string(board_idx) + 
-        //                                 "(" + std::to_string(board.rows) + "x" + std::to_string(board.cols) + ")";
-        //             cv::putText(chessboard_vis_img, board_label,
-        //                        cv::Point2f(first_corner.x - 50, first_corner.y - 20),
-        //                        cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
-        //         }
-        //     }
-        // }
-        
+        cv::Mat chessboard_vis_img = org_img.clone();
+        vector<cv::Scalar> board_colors = {
+            cv::Scalar(255, 0, 0),   // 蓝色
+            cv::Scalar(0, 255, 0),   // 绿色
+            cv::Scalar(0, 0, 255),   // 红色
+            cv::Scalar(255, 255, 0), // 青色
+            cv::Scalar(255, 0, 255), // 品红色
+        };
+
+        for(int board_idx = 0; board_idx < chessboards.size() && board_idx < 5; board_idx++)
+        {
+            cv::Scalar color = board_colors[board_idx];
+            cv::Mat& board = chessboards[board_idx];
+
+            cout << "绘制棋盘格" << board_idx << "的角点分布..." << endl;
+
+            for(int row = 0; row < board.rows; row++)
+            {
+                for(int col = 0; col < board.cols; col++)
+                {
+                    int corner_idx = board.at<int>(row, col);
+                    if(corner_idx >= 0 && corner_idx < corners_s.p.size())
+                    {
+                        cv::Point2f corner_point = corners_s.p[corner_idx];
+
+                        // 画角点圆圈
+                        cv::circle(chessboard_vis_img, corner_point, 8, color, 3);
+
+                        // 标注棋盘格内的位置(row,col)
+                        string pos_label = "(" + std::to_string(row) + "," + std::to_string(col) + ")";
+                        cv::putText(chessboard_vis_img, pos_label,
+                                   cv::Point2f(corner_point.x + 10, corner_point.y - 10),
+                                   cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1);
+
+                        // 画连接线构成网格
+                        if(col < board.cols - 1) // 水平连线
+                        {
+                            int next_corner_idx = board.at<int>(row, col + 1);
+                            if(next_corner_idx >= 0 && next_corner_idx < corners_s.p.size())
+                            {
+                                cv::Point2f next_corner = corners_s.p[next_corner_idx];
+                                cv::line(chessboard_vis_img, corner_point, next_corner, color, 2);
+                            }
+                        }
+                        if(row < board.rows - 1) // 垂直连线
+                        {
+                            int next_corner_idx = board.at<int>(row + 1, col);
+                            if(next_corner_idx >= 0 && next_corner_idx < corners_s.p.size())
+                            {
+                                cv::Point2f next_corner = corners_s.p[next_corner_idx];
+                                cv::line(chessboard_vis_img, corner_point, next_corner, color, 2);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 在棋盘格左上角标注棋盘格编号和尺寸
+            if(board.rows > 0 && board.cols > 0)
+            {
+                int first_corner_idx = board.at<int>(0, 0);
+                if(first_corner_idx >= 0 && first_corner_idx < corners_s.p.size())
+                {
+                    cv::Point2f first_corner = corners_s.p[first_corner_idx];
+                    string board_label = "Board" + std::to_string(board_idx) +
+                                        "(" + std::to_string(board.rows) + "x" + std::to_string(board.cols) + ")";
+                    cv::putText(chessboard_vis_img, board_label,
+                               cv::Point2f(first_corner.x - 50, first_corner.y - 20),
+                               cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
+                }
+            }
+        }
+
         // 标记未被使用的角点
-        // vector<bool> used_corners(corners_s.p.size(), false);
-        // for(int board_idx = 0; board_idx < chessboards.size(); board_idx++)
-        // {
-        //     cv::Mat& board = chessboards[board_idx];
-        //     for(int row = 0; row < board.rows; row++)
-        //     {
-        //         for(int col = 0; col < board.cols; col++)
-        //         {
-        //             int corner_idx = board.at<int>(row, col);
-        //             if(corner_idx >= 0 && corner_idx < corners_s.p.size())
-        //             {
-        //                 used_corners[corner_idx] = true;
-        //             }
-        //         }
-        //     }
-        // }
-        // 
-        // // 绘制未被使用的角点
-        // int unused_count = 0;
-        // for(int i = 0; i < corners_s.p.size(); i++)
-        // {
-        //     if(!used_corners[i])
-        //     {
-        //         cv::Point2f corner_point = corners_s.p[i];
-        //         // 用灰色圆圈标记未使用的角点
-        //         cv::circle(chessboard_vis_img, corner_point, 6, cv::Scalar(128, 128, 128), 2);
-        //         // 标注为未使用
-        //         cv::putText(chessboard_vis_img, "unused",
-        //                    cv::Point2f(corner_point.x + 10, corner_point.y + 10),
-        //                    cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(128, 128, 128), 1);
-        //         unused_count++;
-        //     }
-        // }
-        // cout << "未被使用的角点数量: " << unused_count << endl;
-        // 
-        // // 保存棋盘格可视化图像
-        // string chessboard_save_path = corner_debug_dir + "/frame_" + 
-        //                              std::to_string(img_indx) + "_chessboards.png";
-        // cv::imwrite(chessboard_save_path, chessboard_vis_img);
-        // cout << "棋盘格可视化图像已保存到: " << chessboard_save_path << endl;
-        
+        vector<bool> used_corners(corners_s.p.size(), false);
+        for(int board_idx = 0; board_idx < chessboards.size(); board_idx++)
+        {
+            cv::Mat& board = chessboards[board_idx];
+            for(int row = 0; row < board.rows; row++)
+            {
+                for(int col = 0; col < board.cols; col++)
+                {
+                    int corner_idx = board.at<int>(row, col);
+                    if(corner_idx >= 0 && corner_idx < corners_s.p.size())
+                    {
+                        used_corners[corner_idx] = true;
+                    }
+                }
+            }
+        }
+
+        // 绘制未被使用的角点
+        int unused_count = 0;
+        for(int i = 0; i < corners_s.p.size(); i++)
+        {
+            if(!used_corners[i])
+            {
+                cv::Point2f corner_point = corners_s.p[i];
+                // 用灰色圆圈标记未使用的角点
+                cv::circle(chessboard_vis_img, corner_point, 6, cv::Scalar(128, 128, 128), 2);
+                // 标注为未使用
+                cv::putText(chessboard_vis_img, "unused",
+                           cv::Point2f(corner_point.x + 10, corner_point.y + 10),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(128, 128, 128), 1);
+                unused_count++;
+            }
+        }
+        cout << "未被使用的角点数量: " << unused_count << endl;
+
+        // 保存棋盘格可视化图像
+        string chessboard_save_path = corner_debug_dir + "/frame_" +
+                                     std::to_string(img_indx) + "_chessboards.png";
+        cv::imwrite(chessboard_save_path, chessboard_vis_img);
+        cout << "棋盘格可视化图像已保存到: " << chessboard_save_path << endl;
+
+//由此往上是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
+
         bool ischoose = false; // 标记当前帧是否被选中用于标定
         
         // 检查当前帧是否为有效帧（角点数量正确）
@@ -1202,15 +1191,6 @@ namespace CAMERA
         cout<<"Camera calibration has finished"<<endl<<endl;
     }
 
-    /**
-     * @brief 使用预定义内参计算外参
-     * 
-     * 该函数使用已知的相机内参和畸变参数，通过PnP算法计算每个有效帧的外参。
-     * 不进行内参标定，直接使用提供的内参数据。
-     * 
-     * @param predefined_intrinsic 预定义的相机内参矩阵
-     * @param predefined_distortion 预定义的相机畸变参数
-     */
     void Camera::calibration(const cv::Mat& predefined_intrinsic, const cv::Mat& predefined_distortion)
     {
         //检查数据并获取角点
@@ -1267,12 +1247,6 @@ namespace CAMERA
         cout<<"Total valid frames: "<<rotateMat.size()<<endl<<endl;
     }
 
-    /**
-     * @brief 验证内参和外参的有效性
-     * 
-     * 该函数通过将3D标定板角点反投影到2D图像上来验证内参和外参的准确性。
-     * 显示原始检测角点与投影角点的对比，以及去畸变效果。
-     */
     void Camera::show()
     {
         cout<<"Starting intrinsic and extrinsic parameter validation..."<<endl;

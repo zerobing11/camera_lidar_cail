@@ -20,7 +20,7 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/PoseStamped.h>
-
+#include <pcl_conversions/pcl_conversions.h>
 #include <std_msgs/Header.h>
 #include <geometry_msgs/Point.h>
 
@@ -28,7 +28,6 @@
 #include <Eigen/Eigenvalues> //为了求特征值
 
 // 先包含PCL相关头文件，避免与OpenCV的flann命名空间冲突
-#include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/filter.h>
@@ -393,16 +392,23 @@ int main(int argc, char **argv)
         }
 
         // 定义已标定好的相机内参
+        // cv::Mat predefined_intrinsic = (cv::Mat_<double>(3,3) <<
+        //     606.3696899414062, 0.0, 417.6044616699219,
+        //     0.0, 604.7097778320312, 247.67758178710938,
+        //     0.0, 0.0, 1.0);
+        //
+        // cv::Mat predefined_distortion = (cv::Mat_<double>(1,5) <<
+        //     0.0, 0.0, 0.0, 0.0, 0.0);
         cv::Mat predefined_intrinsic = (cv::Mat_<double>(3,3) <<
-            606.3696899414062, 0.0, 417.6044616699219,
-            0.0, 604.7097778320312, 247.67758178710938,
-            0.0, 0.0, 1.0);
+                909.5545654296875, 0.0, 630.40673828125,
+                0.0, 907.0646362304688, 371.5163879394531,
+                0.0, 0.0, 1.0);
 
         cv::Mat predefined_distortion = (cv::Mat_<double>(1,5) <<
             0.0, 0.0, 0.0, 0.0, 0.0);
 
         Cam.calibration(predefined_intrinsic, predefined_distortion);//使用预定义内参并计算外参
-        // Cam.show();//显示标定结果
+        Cam.show();//显示标定结果
         Cam.GetIntrincMatrix(intrincMatrix);
         Cam.GetDistParameter(distParameter);
         std::cout<<"intrinsic:"<<intrincMatrix<<std::endl;

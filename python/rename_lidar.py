@@ -15,8 +15,8 @@ def rename_and_copy_lidar():
     重命名并复制雷达点云文件
     """
     # 源目录和目标目录
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar_pre"
-    target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar"
+    source_dir = "/home/lz/camera_lidar_cail/src/data/lidar_pre"
+    target_dir = "/home/lz/camera_lidar_cail/src/data/lidar"
     
     # 确保目标目录存在
     os.makedirs(target_dir, exist_ok=True)
@@ -53,10 +53,10 @@ def create_lidar_names_file():
     """
     创建lidar_names.txt文件，包含雷达文件的映射关系
     """
-    names_file = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar_names.txt"
+    names_file = "/home/lz/camera_lidar_cail/src/data/lidar_names.txt"
     
     # 获取雷达文件数量
-    target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar"
+    target_dir = "/home/lz/camera_lidar_cail/src/data/lidar"
     lidar_files = glob.glob(os.path.join(target_dir, "lidar_*.txt"))
     num_lidar = len(lidar_files)
     
@@ -78,8 +78,8 @@ def verify_file_order():
     """
     验证文件顺序是否正确
     """
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/python/output/lidar_txt"
-    target_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data/lidar"
+    source_dir = "/home/lz/camera_lidar_cail/python/output/lidar_txt"
+    target_dir = "/home/lz/camera_lidar_cail/src/data/lidar"
     
     # 获取源文件和目标文件列表
     source_files = sorted(glob.glob(os.path.join(source_dir, "*.txt")))
@@ -118,7 +118,7 @@ def main():
     print("=" * 60)
     
     # 检查源目录是否存在
-    source_dir = "/home/lz/Camera-Lidar-Calibration-master/python/output/lidar_txt"
+    source_dir = "/home/lz/camera_lidar_cail/python/output/lidar_txt"
     if not os.path.exists(source_dir):
         print(f"错误: 源目录不存在 - {source_dir}")
         print("请先运行 lidar_image_sync.py 生成TXT格式的雷达文件")

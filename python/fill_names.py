@@ -14,7 +14,7 @@ def scan_data_files():
     扫描src/data目录下的雷达和图像文件
     """
     # 定义路径
-    data_dir = "/home/lz/Camera-Lidar-Calibration-master/src/data"
+    data_dir = "/home/lz/camera_lidar_cail/src/data"
     lidar_dir = os.path.join(data_dir, "lidar")
     image_dir = os.path.join(data_dir, "leftImg")
     names_file = os.path.join(data_dir, "names.txt")
