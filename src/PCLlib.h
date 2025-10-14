@@ -47,6 +47,8 @@
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/registration/ndt.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/console/print.h>
 
 #include <pcl/search/search.h>
 #include <pcl/search/kdtree.h>
@@ -97,6 +99,18 @@ pcl::PointCloud<pcl::PointXYZI> Load_PointCloud(vector<vector<float>> cloud_poin
 	}
 	return cloud;
 } 
+
+pcl::PointCloud<pcl::PointXYZI> Load_ply(const std::string &ply_file)
+{
+    pcl::PointCloud<pcl::PointXYZI> cloud;
+    pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
+    // 属性包含 x y z intensity
+    if(pcl::io::loadPLYFile<pcl::PointXYZI>(ply_file, cloud) != 0)
+    {
+        std::cerr << "Failed to load PLY file: " << ply_file << std::endl;
+    }
+    return cloud;
+}
 
 
 namespace PCLlib
@@ -254,147 +268,11 @@ namespace PCLlib
 		// 若需 A*x + B*y + C*z + D = 0 形式,则A,B,C,D为{ a(0), a(1), -1.0, a(2) }
 		 return P;
     }
-    
-	void DetectPlane(Eigen::Vector4f &plane_model,std::vector<pcl::PointCloud<pcl::PointXYZI>> &laserCloudScans,pcl::PointXYZ target_point,Eigen::Vector3f &center,int N_SCANS=16,int npoints=2)//实测数据npoints=5 仿真数据npoints=2
-	{
-		//float dis=0.6;
-		pcl::PointCloud<pcl::PointXYZI> board_points;
-		pcl::PointXYZI t;
-		t.x=target_point.x;
-		t.y=target_point.y;
-		t.z=target_point.z;
-		t.intensity=20;
-		SearchMostClosePoint(target_point,laserCloudScans);
-		laserCloudScans[0].push_back(t);
-		float angle = atan(target_point.z / sqrt(target_point.x * target_point.x + target_point.y * target_point.y)) * 180 / M_PI;
-		int ID=int((angle + 15) / 2 + 0.5);
-		//cout<<"ID:"<<ID<<endl;
-        int pindex;
-		for(int i=ID;i<laserCloudScans.size();i++)
-		{
-			pindex=SearchCloseIndex(target_point,laserCloudScans[i]);
-			//cout<<"getdis:"<<GetDistance(target_point,laserCloudScans[i].points[pindex])<<endl;
-			if(GetDistance(target_point,laserCloudScans[i].points[pindex])>0.6)//0.13实测数据0.13 仿真数据0.6
-			    break;
-			for(int j=pindex-1;j>=0;j--)
-			{
-				//cout<<"getdis xiangling:"<<GetDistance(target_point,laserCloudScans[i].points[j])<<endl;
-				//cout<<"GetCurvature:"<<GetCurvature(laserCloudScans[i],j,npoints)<<endl;
-				if(GetDistance(target_point,laserCloudScans[i].points[j])>0.6)
-				    break;
-				if(GetCurvature(laserCloudScans[i],j,npoints)>4)////实测数据1.5 仿真数据4
-				    break;
-				board_points.push_back(laserCloudScans[i].points[j]);
-			}
-			for(int j=pindex;j<=laserCloudScans[i].points.size();j++)
-			{
-				if(GetDistance(target_point,laserCloudScans[i].points[j])>0.6)
-				    break;
-				if(GetCurvature(laserCloudScans[i],j,npoints)>4)
-				    break;
-				board_points.push_back(laserCloudScans[i].points[j]);
-			}
-		}
-		for(int i=ID-1;i>=0;i--)
-		{
-			pindex=SearchCloseIndex(target_point,laserCloudScans[i]);
-			if(GetDistance(target_point,laserCloudScans[i].points[pindex])>0.6)
-			    break;
-			for(int j=pindex-1;j>=0;j--)
-			{
-				if(GetDistance(target_point,laserCloudScans[i].points[j])>0.6)
-				    break;
-				if(GetCurvature(laserCloudScans[i],j,npoints)>4)
-				    break;
-				board_points.push_back(laserCloudScans[i].points[j]);
-			}
-			for(int j=pindex;j<=laserCloudScans[i].points.size();j++)
-			{
-				if(GetDistance(target_point,laserCloudScans[i].points[j])>0.6)
-				    break;
-				if(GetCurvature(laserCloudScans[i],j,npoints)>4)
-				    break;
-				board_points.push_back(laserCloudScans[i].points[j]);
-			}
-		}
-
-		//cout<<"plane_points:"<<board_points.size()<<endl;
-		Eigen::Vector4f p_lidar;
-		if(board_points.size()>10)//实测数据20 仿真数据10
-		    p_lidar = Calculate_Planar_Model(board_points);
-		else
-		{
-			cout<<"plane_points:"<<board_points.size()<<endl;
-			cout<<"can not find enough points to caculate plane1!"<<endl;
-			plane_model[0]=10;
-			plane_model[0]=0;
-			plane_model[0]=0;
-			plane_model[0]=1;
-			return;
-		}
-        board_points.clear();
-		pindex=SearchCloseIndex(target_point,laserCloudScans[ID]);
-		pcl::PointXYZ temp=target_point;
-        DetectLine(laserCloudScans[ID],board_points,pindex,npoints,p_lidar);
-		for(int i=ID+1;i<laserCloudScans.size();i++)
-		{
-			pindex=SearchCloseIndex(temp,laserCloudScans[i]);
-			if(GetDistance(temp,laserCloudScans[i].points[pindex])>0.6)//0.15实测数据0.15 仿真数据d0.6
-			    break;
-			temp.x=laserCloudScans[i].points[pindex].x;
-			temp.y=laserCloudScans[i].points[pindex].y;
-			temp.z=laserCloudScans[i].points[pindex].z;
-            DetectLine(laserCloudScans[i],board_points,pindex,npoints,p_lidar);
-		}
-        temp=target_point;
-		for(int i=ID-1;i>=0;i--)
-		{
-			pindex=SearchCloseIndex(temp,laserCloudScans[i]);
-			if(GetDistance(temp,laserCloudScans[i].points[pindex])>0.6)
-			    break;
-			temp.x=laserCloudScans[i].points[pindex].x;
-			temp.y=laserCloudScans[i].points[pindex].y;
-			temp.z=laserCloudScans[i].points[pindex].z;
-            DetectLine(laserCloudScans[i],board_points,pindex,npoints,p_lidar);
-		}
-		//cout<<board_points.size()<<endl;
-		if(board_points.size()>10)//实测数据20 仿真数据10
-		    plane_model=Calculate_Planar_Model2(board_points);
-		else
-		{
-			cout<<"can not find enough points to caculate plane2!"<<endl;
-			plane_model[0]=10;
-			plane_model[1]=0;
-			plane_model[2]=0;
-			plane_model[3]=1;
-		}
-		    
-		if((board_points[0].x*plane_model[0]+board_points[0].y*plane_model[1]+board_points[0].z*plane_model[2])>0)
-		{
-			plane_model=plane_model*-1.0;
-		}
-		cout<<" lidar plane = "<<plane_model[0]<<" "<<plane_model[1]<<" "<<plane_model[2]<<" "<<plane_model[3]<<endl;
-        pcl::PointXYZ pc;
-		pc.x=0;
-		pc.y=0;
-		pc.z=0;
-		for(int i=0;i<board_points.size();i++)
-		{
-			pc.x=pc.x+board_points[i].x;
-			pc.y=pc.y+board_points[i].y;
-			pc.z=pc.z+board_points[i].z;
-		}
-		center[0]=pc.x/board_points.size();
-		center[1]=pc.y/board_points.size();
-		center[2]=pc.z/board_points.size();
-		cout<<"center:"<<center<<endl;
-	}
 
 	// 第一次RANSAC平面检测函数 - 在小范围内提取初始平面
 	bool FirstRansacDetection(Eigen::Vector4f &first_plane_model, Eigen::Vector3f &center,
 							  pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point, 
-							  float x1_radius=0.8, float ransac_radius=0.02, int min_points=20, 
-							  float small_plane_intensity=50.0)
+							  float x1_radius=0.8, float ransac_radius=0.02, int min_points=20)
 	{
 		cout<<"Starting first RANSAC plane detection..."<<endl;
 		cout<<"Target point: ("<<target_point.x<<", "<<target_point.y<<", "<<target_point.z<<")"<<endl;
@@ -474,7 +352,6 @@ namespace PCLlib
 		cout<<"Plane center: ("<<center[0]<<", "<<center[1]<<", "<<center[2]<<")"<<endl;
 
 		// 设置第一阶段检测到的平面点的强度值，便于在rviz中区分显示
-		cout<<"Setting first stage plane points intensity to "<<small_plane_intensity<<endl;
 		int first_plane_points_count = 0;
 		for(int i = 0; i < global_map.size(); i++)
 		{
@@ -486,7 +363,7 @@ namespace PCLlib
 			// 如果点在x1范围内，设置其强度值
 			if(distance_to_seed <= x1_radius)
 			{
-				global_map[i].intensity = small_plane_intensity;
+				global_map[i].intensity = 50;
 				first_plane_points_count++;
 			}
 		}
@@ -499,7 +376,7 @@ namespace PCLlib
 	bool SecondRansacDetection(Eigen::Vector4f &final_plane_model,
 							   pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point,
 							   const Eigen::Vector4f &first_plane_model,
-							   float x2_radius=1.5, float y_distance_threshold=0.05, int min_points=20, 
+							   float x2_radius=1.5, float ransac_radius=0.01,float y_distance_threshold=0.05, int min_points=20,
 							   float plane_intensity=100.0)
 	{
 		cout<<"Starting second RANSAC plane detection..."<<endl;
@@ -548,7 +425,7 @@ namespace PCLlib
 
 			pcl::SampleConsensusModelPlane<pcl::PointXYZI>::Ptr model_p2(new pcl::SampleConsensusModelPlane<pcl::PointXYZI>(second_stage_points.makeShared()));
 			pcl::RandomSampleConsensus<pcl::PointXYZI> ransac2(model_p2);
-			ransac2.setDistanceThreshold(0.01); // 第二次RANSAC使用更严格的距离阈值
+			ransac2.setDistanceThreshold(ransac_radius); // 第二次RANSAC使用更严格的距离阈值
 			ransac2.computeModel();
 			ransac2.getInliers(second_inliers);
 

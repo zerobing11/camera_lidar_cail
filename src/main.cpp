@@ -85,170 +85,6 @@ bool showPCD=true;
 bool FirstLidarFrame=true;
 
 vector<pcl::PointXYZ> board_points;
-struct Data
-{
-    pcl::PointCloud<pcl::PointXYZI> global_map;
-	vector<Eigen::Matrix4f> lidar_poses;
-    vector<int> indexs;
-};
-
-class PCData
-{
-    private:
-        std::mutex m;
-        Data data;
-    public:
-        void pose_push(Eigen::Matrix4f pose)
-        {
-            lock_guard<std::mutex> guard1(m);
-            data.lidar_poses.push_back(pose);
-        };
-        void index_push(int i)
-        {
-            lock_guard<std::mutex> guard1(m);
-            data.indexs.push_back(i);
-        };
-        int get_index_size()
-        {
-            lock_guard<std::mutex> guard1(m);
-            return data.indexs.size();
-        };
-        int get_pose_size()
-        {
-            lock_guard<std::mutex> guard1(m);
-            return data.lidar_poses.size();
-        };
-        int need_to_ndt()
-        {
-            lock_guard<std::mutex> guard1(m);
-            return data.indexs.size()-data.lidar_poses.size();
-        };
-        int get_index(int i)
-        {
-            lock_guard<std::mutex> guard1(m);
-            return data.indexs[i];
-        };
-        Eigen::Matrix4f get_pose(int i)
-        {
-            lock_guard<std::mutex> guard1(m);
-            return data.lidar_poses[i];
-        };
-        bool isfinish()
-        {
-            lock_guard<std::mutex> guard1(m);
-            if(data.indexs.size()==data.lidar_poses.size())
-                return true;
-            else
-                return false;
-        }
-};
-
-PCData pcdata1;
-std::condition_variable pcd_cond,pcd_cond2;
-
-void SolveNDT()
-{
-    PCLlib::NDT ndt(lidar_config_path);
-    std::unique_lock<std::mutex> sn(mutexpcd);
-    vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
-    while(pcdata1.get_index_size()==0)
-    {
-        pcd_cond.wait(sn);
-    }
-    //sn.lock();
-    cout<<"Thread:1"<<endl;
-    cout<<"Start PointClouds NDT"<<endl<<endl;
-    sn.unlock();
-
-    pcd_cond2.notify_one();
-    showPCD=false;
-    int nNDT=0;
-    while(use_NDT)
-    {
-        if(pcdata1.need_to_ndt())
-        {
-            cout<<"ndt:"<<pcdata1.get_index(nNDT)<<endl;
-            vector<string> name = read_format(imgnames[pcdata1.get_index(nNDT)]," ");//读取点云文件//i
-            string filename = path_root+"/lidar/"+name[0]+".txt";
-            vector<vector<float>> cloud_points = FileIO::ReadTxt2Float(filename);
-            pcl::PointCloud<pcl::PointXYZI> cloud=Load_PointCloud(cloud_points);
-            Eigen::Matrix4f Twl;
-            ndt.AddCurrentCloud(cloud,Twl);
-            pcdata1.pose_push(Twl);
-            nNDT++;
-        }
-    }
-}
-
-void ShowPointCloud()
-{
-    vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
-    std::unique_lock<std::mutex> sn(mutexpcd);
-    while(showPCD)
-    {
-        pcd_cond2.wait(sn);
-    }
-    cout<<"Thread:2"<<endl;
-    cout<<"Show GlobalPointClouds"<<endl<<endl;
-    sn.unlock();
-    pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());//当前帧变换到世界地图中的坐标
-    int nGPC=0;
-    pcl::PointCloud<pcl::PointXYZI> global_map;
-    while(use_NDT||nGPC==pcdata1.get_index_size())
-    {
-        if(nGPC<=pcdata1.get_pose_size())
-        {
-            int index=pcdata1.get_index(nGPC);
-            vector<string> name = read_format(imgnames[index]," ");//读取点云文件//i
-            string filename = path_root+"/lidar/"+name[0]+".txt";
-            vector<vector<float>> cloud_points = FileIO::ReadTxt2Float(filename);
-            pcl::PointCloud<pcl::PointXYZI> cloud=Load_PointCloud(cloud_points);
-            //Eigen::Matrix4f Twl=pcdata1.get_pose(index);
-            //pcl::transformPointCloud(cloud, *transformed_scan_ptr, Twl);
-            //global_map += *transformed_scan_ptr;//将当前帧点云融合到世界坐标当中
-            //ros::Time ros_timestamp = ros::Time::now();
-            nGPC++;
-
-            // ros::Time ros_timestamp = ros::Time::now();
-			// if(map_pub.getNumSubscribers()>0)//全局地图
-			// {
-			// 	sensor_msgs::PointCloud2 map_msg;
-			// 	pcl::toROSMsg(global_map,map_msg);
-			// 	map_msg.header.frame_id = "/velodyne";
-			// 	map_msg.header.stamp = ros::Time::now();
-			// 	map_pub.publish(map_msg);
-			// }
-			// //发布位姿信息
-			// geometry_msgs::PoseStamped ndtpose_msg;
-			// ndtpose_msg.header.frame_id = "/velodyne";
-			// ndtpose_msg.header.stamp = ros::Time::now();
-			// ndtpose_msg.pose.position.x = Twl(0,3);
-			// ndtpose_msg.pose.position.y = Twl(1,3);
-			// ndtpose_msg.pose.position.z = Twl(2,3);
-			// Eigen::Matrix3f R_ndt = Twl.block<3,3>(0,0);
-			// Eigen::Quaternionf q(R_ndt);
-			// ndtpose_msg.pose.orientation.x = q.x();
-			// ndtpose_msg.pose.orientation.y = q.y();
-			// ndtpose_msg.pose.orientation.z = q.z();
-			// ndtpose_msg.pose.orientation.w = q.w();
-
-			// path_msg.poses.push_back(ndtpose_msg);
-			// if(pose_pub.getNumSubscribers()>0)//ndt实时的位姿
-			// {
-			// 	pose_pub.publish(ndtpose_msg);
-			// }
-			// if(path_pub.getNumSubscribers()>0)//ndt的轨迹
-			// {
-			// 	path_msg.header.frame_id = "/velodyne";
-			// 	path_msg.header.stamp = ros::Time::now();
-			// 	path_msg.poses.push_back(ndtpose_msg);
-			// 	path_pub.publish(path_msg);
-			// }
-        }
-        else
-            std::this_thread::sleep_for(std::chrono::minutes(1));
-    }
-}
 
 void waypointCallback(const geometry_msgs::PointStampedConstPtr& waypoint)
 {
@@ -362,10 +198,6 @@ int main(int argc, char **argv)
     n.getParam("/camera_calibration/corner_detect_threshold", corner_detect_threshold);
     n.getParam("/camera_calibration/chessboard_threshold", chessboard_threshold);
 
-    //max_thread=thread::hardware_concurrency();
-    //thread NDT1(SolveNDT),ShowPC(ShowPointCloud);
-    //NDT1.detach();
-    //ShowPC.detach();
 
     //标定
     if(getIntrincMatrix)
@@ -375,19 +207,12 @@ int main(int argc, char **argv)
         for(int i=0;i<imgnames.size();i++)//载入标定图像imgnames.size()
         {
             vector<string> name = read_format(imgnames[i]," ");
-            string filename=path_root+"/leftImg/left_"+name[1]+".png";
+            string filename=path_root+"/img/"+name[1]+".png";
             bool ischoose=Cam.add(filename);
             if(ischoose)
             {
                 camera_valid_frame.push_back(i);
                 cout<<"有效帧 " << camera_valid_frame.size() << ": " << name[1] << ".png" << endl;
-        //         //cout<<i<<"is choosen"<<endl;
-        //         pcdata1.index_push(i);
-        //         if(first_frame)
-        //         {
-        //             pcd_cond.notify_one();
-        //             first_frame=!first_frame;
-        //         }
             }
         }
 
@@ -415,12 +240,6 @@ int main(int argc, char **argv)
         std::cout<<"distortion:"<<distParameter<<std::endl;
         Cam.GetPlanesModels(cam_planes);//获取标定板平面模型
         cv::destroyAllWindows();
-        // while(!pcdata1.isfinish())
-        // {
-        //     std::this_thread::sleep_for(std::chrono::minutes(1));
-        // }
-        // use_NDT=false;
-        // cout<<"finish NDT"<<endl;
     }
 
     //lidar
@@ -442,18 +261,15 @@ int main(int argc, char **argv)
 
             int ind=camera_valid_frame[i];
             vector<string> name = read_format(imgnames[ind]," ");//读取点云文件
-            //这里是lidar所以是name[0]，上面的内参标定的相机的话就是name[1]
-            string filename=path_root+"/lidar/"+name[0]+".txt";
-            vector<vector<float>> cloud_points = FileIO::ReadTxt2Float(filename);
-            std::cout<<"cloud_points.size():"<<cloud_points.size()<<std::endl;
-            target=Load_PointCloud(cloud_points);//加载当前帧点云为target
+            // 直接读取PLY点云文件
+            string filename=path_root+"/lidar/"+name[0]+".ply";
+            target=Load_ply(filename);
             std::cout<<"target.size():"<<target.size()<<std::endl;
 
 
             if(!FirstLidarFrame)
             {
                 //target已经在上面加载了，不需要重复加载
-                //cout<<source.size()<<" "<<target.size()<<endl;
                 cout<<"start transform index:"<<ind<<endl;
                 cout<<i<<" frames has transformed,num of need to NDT:"<<camera_valid_frame.size()-i<<endl;
                 ndt.AddCurrentCloud(target,Twl);
@@ -480,7 +296,7 @@ int main(int argc, char **argv)
                     // 第一次RANSAC检测，并计算平面中心点
                     bool first_success = PCLlib::FirstRansacDetection(first_plane_model, plane_center_single, 
                                                                      target, Bpoint,
-                                                                     0.2, 0.05, 20, 50.0);
+                                                                     0.2, 0.05, 20);
                     
                     // 发布第一次RANSAC结果到rviz
                     if(first_success && ros::ok())
@@ -492,13 +308,12 @@ int main(int argc, char **argv)
                         map_pub.publish(map_msg);
                         cout<<"Published first RANSAC result for plane "<<(j+1)<<" (intensity 50)"<<endl;
                         
-                        // 等待一段时间让用户观察第一次结果
                         std::this_thread::sleep_for(std::chrono::seconds(2));
                         
                         // 第二次RANSAC检测
                         float current_plane_intensity = 80.0 + (j * 20.0);
-                        PCLlib::SecondRansacDetection(plane_model, target, Bpoint,
-                                                     first_plane_model, 0.4, 0.05, 20, current_plane_intensity);
+                        PCLlib::SecondRansacDetection(plane_model, target, Bpoint,first_plane_model,
+                            0.4, 0.015,0.05, 20, current_plane_intensity);
 
                         tmp_plane_params.push_back(plane_model);
                         plane_center.push_back(plane_center_single);
@@ -566,7 +381,6 @@ int main(int argc, char **argv)
             }
             while(FirstLidarFrame)
             {
-                // ros::Time ros_timestamp = ros::Time::now();
                 while(map_pub.getNumSubscribers()<=0){//等待rviz完全启动
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 }
@@ -589,7 +403,7 @@ int main(int argc, char **argv)
                     // 第一次RANSAC检测，并计算平面中心点
                     bool first_success = PCLlib::FirstRansacDetection(first_plane_model, center, 
                                                                      target, board_points[tmp_plane_params.size()],
-                                                                     0.2, 0.05, 20, 50.0);
+                                                                     0.2, 0.05, 20);
                     
                     // 发布第一次RANSAC结果
                     if(first_success && ros::ok())
@@ -604,7 +418,7 @@ int main(int argc, char **argv)
                         
                         // 第二次RANSAC
                         PCLlib::SecondRansacDetection(plane_model, target, board_points[tmp_plane_params.size()],
-                                                     first_plane_model, 0.4, 0.05, 20, current_plane_intensity);
+                                                     first_plane_model, 0.4, 0.015,0.05, 20, current_plane_intensity);
                         
                         plane_center.push_back(center);
                         tmp_plane_params.push_back(plane_model);
@@ -617,7 +431,6 @@ int main(int argc, char **argv)
                             map_msg2.header.frame_id = "/velodyne";
                             map_msg2.header.stamp = ros::Time::now();
                             map_pub.publish(map_msg2);
-                            cout<<"Published second RANSAC result (intensity "<<current_plane_intensity<<")"<<endl;
                         }
                     }
                     else
@@ -652,7 +465,7 @@ int main(int argc, char **argv)
                         choose_points.push_back(p);
                     }
                     FirstLidarFrame=false;
-                    source=Load_PointCloud(cloud_points);
+                    source=target;
                     ndt.AddCurrentCloud(source,Twl);
                     tmp_plane_params.clear();
                     plane_center.clear();
@@ -805,23 +618,6 @@ int main(int argc, char **argv)
                 }
                 FileIO::WriteSting2Txt("/home/conf/Planes.txt",all_plane);
 
-
-                // //求解完外参之后，将3D点投影到图像上进行比较
-                // cout<<"3.Start 3D Points Projection!!!!!"<<endl;
-                // cvNamedWindow("Image");
-                // Eigen::Matrix3f Rcl_float;
-                // Eigen::Vector3f tcl_float;
-                // Eigen::Matrix3f K;
-                // for(int i=0;i<3;i++)
-                // {
-                //     tcl_float[i] = (float)tcl[i];
-                //     for(int j=0;j<3;j++)
-                //     {
-                //         Rcl_float(i,j) = (float)Rcl(i,j);
-                //         K(i,j) = (float)intrincMatrix.at<double>(i,j);
-                //     }
-                // }
-                // cout<<"K = "<<K<<endl;
             }//能够找到配对的激光和视觉平面
         }//外参标定结束
         else

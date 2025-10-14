@@ -3,9 +3,9 @@
 
   <node pkg="camera_calibration" type="camera_calibration" name="camera_calibration" respawn="false" output="screen">
     <param name="lidar_config_path" type="string" value="/home/conf/NDTConfig.txt" />
-    <param name="root" type="string" value="/home/src/data_" />
+    <param name="root" type="string" value="/home/data" />
     <param name="path_Extrinsic" type="string" value="/home/conf/Extrinsic.txt" />
-    <param name="ExtraData_path" type="string" value="/home/src/data/" />
+    <param name="ExtraData_path" type="string" value="/home/data/" />
     <param name="IntrincMatrix" type="int" value="1" />
     <param name="Extrinsic" type="int" value="1" />
     <param name="UseExtraData" type="int" value="1" />
