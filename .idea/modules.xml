@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/camera_lidar_cail.iml" filepath="$PROJECT_DIR$/.idea/camera_lidar_cail.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/Camera-Lidar-Calibration-master.iml" filepath="$PROJECT_DIR$/.idea/Camera-Lidar-Calibration-master.iml" />
     </modules>
   </component>
 </project>

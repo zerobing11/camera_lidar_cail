@@ -4,7 +4,7 @@
 # Docker 镜像名称和标签
 IMAGE_NAME="cali_gdb"
 IMAGE_TAG="latest"
-CONTAINER_NAME='cali_git'
+CONTAINER_NAME='cali'
 
 xhost +local:root
 

@@ -5,10 +5,8 @@
     <param name="lidar_config_path" type="string" value="/home/conf/NDTConfig.txt" />
     <param name="root" type="string" value="/home/data" />
     <param name="path_Extrinsic" type="string" value="/home/conf/Extrinsic.txt" />
-    <param name="ExtraData_path" type="string" value="/home/data/" />
     <param name="IntrincMatrix" type="int" value="1" />
     <param name="Extrinsic" type="int" value="1" />
-    <param name="UseExtraData" type="int" value="1" />
     <!-- 角点检测和棋盘格识别阈值参数 -->
     <param name="corner_detect_threshold" type="double" value="0.05" />
     <param name="chessboard_threshold" type="double" value="1.4" />
