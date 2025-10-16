@@ -376,7 +376,7 @@ namespace PCLlib
 	bool SecondRansacDetection(Eigen::Vector4f &final_plane_model,
 							   pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point,
 							   const Eigen::Vector4f &first_plane_model,
-							   float x2_radius=1.5, float ransac_radius=0.01,float y_distance_threshold=0.05, int min_points=20,
+							   float x2_radius=1.5, float y_distance_threshold=0.05,float ransac_radius=0.01, int min_points=20,
 							   float plane_intensity=100.0)
 	{
 		cout<<"Starting second RANSAC plane detection..."<<endl;

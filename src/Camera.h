@@ -931,7 +931,7 @@ namespace CAMERA
         string corner_save_path = corner_debug_dir + "/frame_" + 
                                  std::to_string(img_indx) + "_corners.png";
         cv::imwrite(corner_save_path, corner_vis_img);
-        cout << "角点可视化图像已保存到: " << corner_save_path << endl;
+        // cout << "角点可视化图像已保存到: " << corner_save_path << endl;
 //由此往上是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
 
         ImageChessesStruct ics;
@@ -957,7 +957,7 @@ namespace CAMERA
             cv::Scalar color = board_colors[board_idx];
             cv::Mat& board = chessboards[board_idx];
 
-            cout << "绘制棋盘格" << board_idx << "的角点分布..." << endl;
+            // cout << "绘制棋盘格" << board_idx << "的角点分布..." << endl;
 
             for(int row = 0; row < board.rows; row++)
             {
@@ -1050,13 +1050,13 @@ namespace CAMERA
                 unused_count++;
             }
         }
-        cout << "未被使用的角点数量: " << unused_count << endl;
+        // cout << "未被使用的角点数量: " << unused_count << endl;
 
         // 保存棋盘格可视化图像
         string chessboard_save_path = corner_debug_dir + "/frame_" +
                                      std::to_string(img_indx) + "_chessboards.png";
         cv::imwrite(chessboard_save_path, chessboard_vis_img);
-        cout << "棋盘格可视化图像已保存到: " << chessboard_save_path << endl;
+        // cout << "棋盘格可视化图像已保存到: " << chessboard_save_path << endl;
 
 //由此往上是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
 

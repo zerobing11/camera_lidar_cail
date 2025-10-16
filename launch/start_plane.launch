@@ -4,6 +4,9 @@
   <node pkg="camera_calibration" type="plane_processor" name="plane_processor" respawn="false" output="screen">
     <param name="lidar_config_path" type="string" value="/home/conf/NDTConfig.txt" />
     <param name="root" type="string" value="/home/data" />
+    <param name="ransac_distance_threshold" type="double" value="1.0" />
+    <param name="ransac_normal_threshold" type="double" value="0.05" />
+    <param name="ransac_radius_threshold" type="double" value="0.035" />
   </node>  
   
   <node pkg="rviz" type="rviz" name="rviz" args="-d $(find camera_calibration)/launch/test.rviz" />

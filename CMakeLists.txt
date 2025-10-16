@@ -37,8 +37,8 @@ target_link_libraries( camera_calibration
 		      ${PROJECT_SOURCE_DIR}/src/ThirdParty/build/libKITTICornerDetection.so)
 
 ## 添加平面处理节点
-#add_executable( plane_processor src/main_plane.cpp)
-#target_link_libraries( plane_processor
-#		      ${OpenCV_LIBS}
-#		      ${catkin_LIBRARIES}
-#			  ${PCL_LIBRARIES})
+add_executable( plane_processor src/main_plane.cpp)
+target_link_libraries( plane_processor
+		      ${OpenCV_LIBS}
+		      ${catkin_LIBRARIES}
+			  ${PCL_LIBRARIES})

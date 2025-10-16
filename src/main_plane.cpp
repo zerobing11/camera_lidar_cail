@@ -7,6 +7,8 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include "ros/ros.h"
 #include "std_msgs/String.h"
@@ -59,25 +61,41 @@ int main(int argc, char **argv)
     // 设置路径
     string path_root;
     n.getParam("/plane_processor/root", path_root);
-    string path_names = path_root + "/names.txt";
     string lidar_config_path;
     n.getParam("/plane_processor/lidar_config_path", lidar_config_path);
     
-    // 输出目录
+    // 设置RANSAC参数
+    double ransac_distance_threshold, ransac_normal_threshold, ransac_radius_threshold;
+    n.param("/plane_processor/ransac_distance_threshold", ransac_distance_threshold, 1.0);
+    n.param("/plane_processor/ransac_normal_threshold", ransac_normal_threshold, 0.05);
+    n.param("/plane_processor/ransac_radius_threshold", ransac_radius_threshold, 0.03);
+    
+    // 输入和输出目录
+    string input_dir = path_root + "/lidar_plane__";
     string output_dir = path_root + "/lidar_plane";
 
-    
-    // 读取文件列表
-    vector<string> imgnames = FileIO::ReadTxt2String(path_names, false);
-    
-    if (imgnames.empty())
-    {
-        cerr << "Error: No files found in " << path_names << endl;
+    // 获取所有ply文件
+    vector<string> ply_files;
+    DIR* dir = opendir(input_dir.c_str());
+    if (!dir) {
+        cerr << "Error: Cannot open directory " << input_dir << endl;
         return -1;
     }
-    
-    cout << "Found " << imgnames.size() << " files to process" << endl;
-    
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        string filename = entry->d_name;
+        if (filename.length() > 4 && filename.substr(filename.length() - 4) == ".ply") {
+            ply_files.push_back(filename.substr(0, filename.length() - 4));
+        }
+    }
+    closedir(dir);
+    if (ply_files.empty()) {
+        cerr << "Error: No .ply files found in " << input_dir << endl;
+        return -1;
+    }
+    sort(ply_files.begin(), ply_files.end());
+    cout << "Found " << ply_files.size() << " .ply files to process" << endl;
+    //定义点云变量
     pcl::PointCloud<pcl::PointXYZI> global_map, target, source, choose_points;
     Eigen::Matrix4f Twl, Tlw;
     bool FirstLidarFrame = true;
@@ -88,15 +106,13 @@ int main(int argc, char **argv)
     int success_count = 0;
     int fail_count = 0;
     
-    for (int i = 0; i < imgnames.size(); i++)
+    for (int i = 0; i < ply_files.size(); i++)
     {
         target.clear();
         
-        vector<string> name = read_format(imgnames[i], " ");
-        
         // 读取点云文件
-        string filename = path_root + "/lidar/" + name[0] + ".ply";
-        cout << "\n[" << (i + 1) << "/" << imgnames.size() << "] Loading: " << filename << endl;
+        string filename = input_dir + "/" + ply_files[i] + ".ply";
+        cout << "\n[" << (i + 1) << "/" << ply_files.size() << "] Loading: " << filename << endl;
         
         target = Load_ply(filename);
         
@@ -186,7 +202,7 @@ int main(int argc, char **argv)
         cout << "\nStarting first RANSAC plane detection..." << endl;
         bool first_success = PCLlib::FirstRansacDetection(
             first_plane_model, center, target, seed_point,
-            0.2, 0.05, 20);
+            0.4, 0.06, 20);
         
         if (!first_success)
         {
@@ -213,7 +229,7 @@ int main(int argc, char **argv)
         cout << "\nStarting second RANSAC plane detection..." << endl;
         PCLlib::SecondRansacDetection(
             final_plane_model, target, seed_point, first_plane_model,
-            0.4, 0.015, 0.05, 20, 50.0);  // 平面点强度设为50
+            ransac_distance_threshold, ransac_normal_threshold, ransac_radius_threshold, 20, 50.0);  // 平面点强度设为50
         
         // 将非平面点的强度设为70
         cout << "Setting non-plane points intensity to 70..." << endl;
@@ -247,7 +263,7 @@ int main(int argc, char **argv)
         }
         
         // 保存处理后的点云
-        string output_file = output_dir + "/" + name[0] + ".ply";
+        string output_file = output_dir + "/" + ply_files[i] + ".ply";
         cout << "\nSaving to: " << output_file << endl;
         
         pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
@@ -281,7 +297,9 @@ int main(int argc, char **argv)
         }
         
         cout << "Frame " << i << " processing completed." << endl;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+       // std::this_thread::sleep_for(std::chrono::seconds(1));
+        cout << "Press Enter to continue to next frame..." << endl;
+        cin.get();
     }
     
 

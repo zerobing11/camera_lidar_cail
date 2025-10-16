@@ -313,7 +313,7 @@ int main(int argc, char **argv)
                         // 第二次RANSAC检测
                         float current_plane_intensity = 80.0 + (j * 20.0);
                         PCLlib::SecondRansacDetection(plane_model, target, Bpoint,first_plane_model,
-                            0.4, 0.015,0.05, 20, current_plane_intensity);
+                            0.4, 0.05,0.015, 20, current_plane_intensity);
 
                         tmp_plane_params.push_back(plane_model);
                         plane_center.push_back(plane_center_single);
@@ -418,7 +418,7 @@ int main(int argc, char **argv)
                         
                         // 第二次RANSAC
                         PCLlib::SecondRansacDetection(plane_model, target, board_points[tmp_plane_params.size()],
-                                                     first_plane_model, 0.4, 0.015,0.05, 20, current_plane_intensity);
+                                                     first_plane_model, 0.4, 0.05,0.015, 20, current_plane_intensity);
                         
                         plane_center.push_back(center);
                         tmp_plane_params.push_back(plane_model);
@@ -601,7 +601,7 @@ int main(int argc, char **argv)
                             to_string(distParameter.at<double>(0,2))+" "+
                             to_string(distParameter.at<double>(0,3))+" "+
                             to_string(distParameter.at<double>(0,4)));
-                FileIO::WriteSting2Txt("/home/conf/Extrinsic.txt",calibraion_res);
+                FileIO::WriteSting2Txt("/home/result/Extrinsic.txt",calibraion_res);
 
                 vector<string> all_plane;
                 for(int i=0;i<imgnames.size();i++)
@@ -616,7 +616,7 @@ int main(int argc, char **argv)
                         " "+to_string(cam_planes[i][2](0))+" "+to_string(cam_planes[i][2](1))+" "+to_string(cam_planes[i][2](2))+" "+to_string(cam_planes[i][2](3)));
                     }
                 }
-                FileIO::WriteSting2Txt("/home/conf/Planes.txt",all_plane);
+                FileIO::WriteSting2Txt("/home/result/Planes.txt",all_plane);
 
             }//能够找到配对的激光和视觉平面
         }//外参标定结束
@@ -626,8 +626,8 @@ int main(int argc, char **argv)
 
     //lidar
     string path1,path2;
-    path1="/home/conf/Planes.txt";
-    path2="/home/conf/Extrinsic.txt";
+    path1="/home/result/Planes.txt";
+    path2="/home/result/Extrinsic.txt";
     std::cout<<"start calculate error"<<std::endl;
     calculateExtrinsicError(path1,path2);
 }
