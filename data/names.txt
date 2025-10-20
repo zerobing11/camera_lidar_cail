@@ -6,5 +6,3 @@ lidar_005 img_005
 lidar_006 img_006
 lidar_007 img_007
 lidar_008 img_008
-lidar_009 img_009
-lidar_010 img_010

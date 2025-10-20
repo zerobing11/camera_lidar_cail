@@ -7,6 +7,14 @@
     <param name="ransac_distance_threshold" type="double" value="1.0" />
     <param name="ransac_normal_threshold" type="double" value="0.05" />
     <param name="ransac_radius_threshold" type="double" value="0.035" />
+    <!-- 是否启用按回车键等待功能 -->
+    <param name="wait_enter" type="bool" value="true" />
+    <!-- RANSAC参数 -->
+    <param name="first_ransac_radius" type="double" value="0.4" />
+    <param name="first_ransac_threshold" type="double" value="0.06" />
+    <param name="second_ransac_radius" type="double" value="0.8" />
+    <param name="second_ransac_y_distance_threshold" type="double" value="0.02" />
+    <param name="second_ransac_threshold" type="double" value="0.015" />
   </node>  
   
   <node pkg="rviz" type="rviz" name="rviz" args="-d $(find camera_calibration)/launch/test.rviz" />

@@ -7,6 +7,8 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <random>
+#include <ctime>
 
 #include "ros/ros.h"
 #include "std_msgs/String.h"
@@ -105,7 +107,42 @@ void waypointCallback(const geometry_msgs::PointStampedConstPtr& waypoint)
   cout<<board_point<<endl;
 }
 
-void calculateExtrinsicError(string planes_path,string extrinsic_path)
+// 生成随机采样的索引序列
+vector<int> generateSampleIndices(int total_frames, int sample_num, int seed) {
+    vector<int> result;
+    
+    // 如果sample_num为-1或大于等于总帧数，返回所有索引
+    if(sample_num <= 0 || sample_num >= total_frames) {
+        for(int i = 0; i < total_frames; i++) {
+            result.push_back(i);
+        }
+        return result;
+    }
+    
+    // 随机选择起始位置（保证后续有足够的连续帧）
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int> dist(0, total_frames - sample_num);
+    int start_idx = dist(rng);
+    
+    // 生成连续的索引序列
+    for(int i = start_idx; i < start_idx + sample_num; i++) {
+        result.push_back(i);
+    }
+    
+    cout<<"[Sample Info] Start from frame "<<start_idx<<", using "<<sample_num<<" consecutive frames"<<endl;
+    return result;
+}
+
+// 用于存储详细误差信息的结构体
+struct DetailedError {
+    double normal_error;      // 法向量误差（弧度）
+    double distance_error;    // 距离误差
+};
+
+// 计算标定误差并返回平均平面距离误差，同时输出详细误差信息
+double calculateExtrinsicError(string planes_path,string extrinsic_path, bool verbose,
+                               vector<vector<DetailedError>>& plane_errors,
+                               double& mean_normal_error, double& mean_distance_error)
 {
     vector<vector<float>> content = FileIO::ReadTxt2Float(extrinsic_path,true);//path_Ext
     Eigen::Matrix3f Rcl_float;
@@ -143,10 +180,14 @@ void calculateExtrinsicError(string planes_path,string extrinsic_path)
         temp_pl.clear();
         temp_pc.clear();
     }
+    
     int n=lidarPlanes.size();
     float n_error=0,d_error=0,maxN=0,maxD=0,ind1,ind2;
+    plane_errors.clear();
+    
     for(int i=0;i<n;i++)
     {
+        vector<DetailedError> frame_errors;
         for(int j=0;j<3;j++)
         {
             Eigen::Vector3f nl(lidarPlanes[i][j][0],lidarPlanes[i][j][1],lidarPlanes[i][j][2]);
@@ -162,7 +203,15 @@ void calculateExtrinsicError(string planes_path,string extrinsic_path)
             float cam_D = lidarPlanes[i][j][3]+(nl[0]*tcl_float[0]+nl[1]*tcl_float[1]+nl[2]*tcl_float[2]);
             float error2=camPlanes[i][j][3]-cam_D;
             d_error+=abs(error2);
-            cout<<i<<" "<<j<<" "<<error/PI*180<<" "<<error2<<endl;
+            
+            // 保存详细误差
+            DetailedError de;
+            de.normal_error = error;
+            de.distance_error = error2;
+            frame_errors.push_back(de);
+            
+            if(verbose)
+                cout<<i<<" "<<j<<" "<<error/PI*180<<" "<<error2<<endl;
             if(error>maxN)
             {
                 ind1=i;
@@ -174,11 +223,20 @@ void calculateExtrinsicError(string planes_path,string extrinsic_path)
                 maxD=error2;
             }
         }
-        cout<<endl;
+        plane_errors.push_back(frame_errors);
+        if(verbose)
+            cout<<endl;
     }
-    cout<<"mean error normal="<<(n_error/3/n)/PI*180<<endl;
-    cout<<"mean error distance="<<d_error/3/n<<endl;
-    cout<<"index:"<<ind1<<"boards:"<<ind2<<"max error normal="<<maxN/PI*180<<endl;
+    
+    mean_normal_error = (n_error/3/n)/PI*180;  // 转换为角度
+    mean_distance_error = d_error/3/n;
+    
+    if(verbose) {
+        cout<<"mean error normal="<<mean_normal_error<<endl;
+        cout<<"mean error distance="<<mean_distance_error<<endl;
+        cout<<"index:"<<ind1<<"boards:"<<ind2<<"max error normal="<<maxN/PI*180<<endl;
+    }
+    return mean_distance_error;
 }
 
 int main(int argc, char **argv)
@@ -190,31 +248,37 @@ int main(int argc, char **argv)
     ros::Publisher path_pub = n.advertise<nav_msgs::Path>("/Path", 1);//轨迹
     ros::Publisher pose_pub = n.advertise<geometry_msgs::PoseStamped>("/Pose", 1);//ndt输出得到的pose
     //设置路径
-	n.getParam("/camera_calibration/root", path_root);//根目录
+	n.getParam("/camera_calibration_muti/root", path_root);//根目录
     string path_coor = path_root+"/3D.txt";
 	string path_coor_planar = path_root+"/3D_planar.txt";
 	path_names = path_root+"/names.txt";
     //设置程序标定模式
     int getIntrincMatrix,getExtrinsic;
-    n.getParam("/camera_calibration/IntrincMatrix", getIntrincMatrix);//是否标定相机
-	n.getParam("/camera_calibration/Extrinsic", getExtrinsic);//
-    n.getParam("/camera_calibration/lidar_config_path", lidar_config_path);
+    n.getParam("/camera_calibration_muti/IntrincMatrix", getIntrincMatrix);//是否标定相机
+	n.getParam("/camera_calibration_muti/Extrinsic", getExtrinsic);//
+    n.getParam("/camera_calibration_muti/lidar_config_path", lidar_config_path);
 
     //设置角点检测和棋盘格识别的阈值参数
     double corner_detect_threshold = 0.15;  // 角点检测阈值默认值
     double chessboard_threshold = 0.8;      // 棋盘格识别阈值默认值
-    n.getParam("/camera_calibration/corner_detect_threshold", corner_detect_threshold);
-    n.getParam("/camera_calibration/chessboard_threshold", chessboard_threshold);
+    n.getParam("/camera_calibration_muti/corner_detect_threshold", corner_detect_threshold);
+    n.getParam("/camera_calibration_muti/chessboard_threshold", chessboard_threshold);
     
     //设置是否启用按回车键等待功能
-    n.getParam("/camera_calibration/wait_enter", wait_enter);
+    n.getParam("/camera_calibration_muti/wait_enter", wait_enter);
     
     //设置RANSAC参数
-    n.getParam("/camera_calibration/first_ransac_radius", first_ransac_radius);
-    n.getParam("/camera_calibration/first_ransac_threshold", first_ransac_threshold);
-    n.getParam("/camera_calibration/second_ransac_radius", second_ransac_radius);
-    n.getParam("/camera_calibration/second_ransac_y_distance_threshold", second_ransac_y_distance_threshold);
-    n.getParam("/camera_calibration/second_ransac_threshold", second_ransac_threshold);
+    n.getParam("/camera_calibration_muti/first_ransac_radius", first_ransac_radius);
+    n.getParam("/camera_calibration_muti/first_ransac_threshold", first_ransac_threshold);
+    n.getParam("/camera_calibration_muti/second_ransac_radius", second_ransac_radius);
+    n.getParam("/camera_calibration_muti/second_ransac_y_distance_threshold", second_ransac_y_distance_threshold);
+    n.getParam("/camera_calibration_muti/second_ransac_threshold", second_ransac_threshold);
+
+    //设置随机采样参数
+    int sample_iter = 1;  // 默认值为1，表示不采样，使用全部数据
+    int sample_data_num = -1;  // 默认值为-1，表示使用全部数据
+    n.getParam("/camera_calibration_muti/sample_iter", sample_iter);
+    n.getParam("/camera_calibration_muti/sample_data_num", sample_data_num);
 
 
     //标定
@@ -260,24 +324,64 @@ int main(int argc, char **argv)
         cv::destroyAllWindows();
     }
 
-    //lidar
+    //lidar - 多次随机采样标定
     if(getExtrinsic)
     {
-        ros::Subscriber waypoint_sub_ = n.subscribe("/clicked_point", 100, waypointCallback);
-        pcl::PointCloud<pcl::PointXYZI> global_map,target,source,choose_points;
-        Eigen::Matrix4f Twl,Tlw;
-        Eigen::Vector4f plane_model;
-        Eigen::Vector3f center;
-        PCLlib::NDT ndt(lidar_config_path);//ndt初始化构造函数
+        // 读取所有图像名称
         vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
-        vector<Eigen::Vector4f> tmp_plane_params;
-        vector<Eigen::Vector3f> plane_center;
-        for(int i=0;i<camera_valid_frame.size();i++)
+        
+        // 用于记录最优结果
+        double best_error = 1e10;
+        Eigen::Matrix3d best_Rcl;
+        Eigen::Vector3d best_Tcl;
+        vector<string> best_calibration_res;
+        vector<string> best_all_plane;
+        int best_iteration = -1;
+        
+        // 用于保存所有迭代的详细信息
+        vector<string> all_iterations_log;
+        
+        cout<<"=========================================="<<endl;
+        cout<<"Start Random Sampling Calibration"<<endl;
+        cout<<"Total iterations: "<<sample_iter<<endl;
+        cout<<"Data per iteration: "<<(sample_data_num > 0 ? sample_data_num : (int)camera_valid_frame.size())<<endl;
+        cout<<"=========================================="<<endl<<endl;
+        
+        // 开始多次迭代标定
+        for(int iter = 0; iter < sample_iter; iter++)
         {
-            target.clear();
+            cout<<"\n==================== Iteration "<<(iter+1)<<"/"<<sample_iter<<" ===================="<<endl;
+            
+            // 清空之前的全局变量
+            lidar_planes.clear();
+            lidarCenters.clear();
+            board_points.clear();
+            FirstLidarFrame = true;
+            
+            // 生成本次迭代的采样索引
+            vector<int> sample_indices = generateSampleIndices(camera_valid_frame.size(), sample_data_num, iter);
+            
+            cout<<"Selected frames for this iteration: ";
+            for(int idx : sample_indices) {
+                cout<<camera_valid_frame[idx]<<" ";
+            }
+            cout<<endl<<endl;
+            
+            ros::Subscriber waypoint_sub_ = n.subscribe("/clicked_point", 100, waypointCallback);
+            pcl::PointCloud<pcl::PointXYZI> global_map,target,source,choose_points;
+            Eigen::Matrix4f Twl,Tlw;
+            Eigen::Vector4f plane_model;
+            Eigen::Vector3f center;
+            PCLlib::NDT ndt(lidar_config_path);//ndt初始化构造函数
+            vector<Eigen::Vector4f> tmp_plane_params;
+            vector<Eigen::Vector3f> plane_center;
+            
+            for(int i=0;i<sample_indices.size();i++)
+            {
+                target.clear();
 
-            int ind=camera_valid_frame[i];
-            vector<string> name = read_format(imgnames[ind]," ");//读取点云文件
+                int ind=camera_valid_frame[sample_indices[i]];
+                vector<string> name = read_format(imgnames[ind]," ");//读取点云文件
             // 直接读取PLY点云文件
             string filename=path_root+"/lidar/"+name[0]+".ply";
             target=Load_ply(filename);
@@ -509,22 +613,21 @@ int main(int argc, char **argv)
                     break;
                 }
             }
-        }
-        cout<<"get valid lidar planes:"<<lidar_planes.size()<<endl;
+            }
+            cout<<"get valid lidar planes:"<<lidar_planes.size()<<endl;
 
-        Eigen::Matrix3d Rcl_;
-	    Eigen::Vector3d Tcl_;
-        if(getExtrinsic)
-        {
+            Eigen::Matrix3d Rcl_;
+            Eigen::Vector3d Tcl_;
+            
             cout<<"0.Start Extrinsic Optimization!!!!!!!!!!!"<<endl;
             //最后开始计算外参
             vector<vector<Eigen::Vector4f>> lidarPlanes;
             vector<vector<Eigen::Vector4f>> camPlanes;
 
-            for(map<int,vector<Eigen::Vector4f>>::iterator iter=lidar_planes.begin();iter!=lidar_planes.end();iter++)
+            for(map<int,vector<Eigen::Vector4f>>::iterator it=lidar_planes.begin();it!=lidar_planes.end();it++)
             {   vector<Eigen::Vector3f> lc;
                 Eigen::Vector3f p;
-                int i=iter->first;
+                int i=it->first;
                 //这一frame同时检测到了相机和激光的平面，才会加入到优化中
                 if((cam_planes.find(i)!=cam_planes.end())&&(lidar_planes.find(i)!=lidar_planes.end()))
                 {
@@ -539,7 +642,8 @@ int main(int argc, char **argv)
                 }
             }
             cout<<"Num of frames to optimize extrisinc = "<<lidarPlanes.size()<<endl;
-            cout<<"lidarCenters.size():"<<lidarCenters.size()<<" "<<lidarCenters[0].size()<<endl;
+            if(lidarCenters.size() > 0 && lidarCenters[0].size() > 0)
+                cout<<"lidarCenters.size():"<<lidarCenters.size()<<" "<<lidarCenters[0].size()<<endl;
             //为了计算得到tc,L和Rc,L
             //先拟合得到Rc,l 然后再线性计算得到tc,l
             if(lidarPlanes.size()!=0)
@@ -623,7 +727,8 @@ int main(int argc, char **argv)
                 n.getParam("/calibration/path_Extrinsic", data_path);//根目录
                 Rcl_=Rcl;
                 Tcl_=tcl;
-                //FileIO::WriteSenserParameters(Rcl,tcl,intrincMatrix,distParameter,data_path);
+                
+                // 准备当前迭代的标定结果
                 vector<string> calibraion_res;
                 calibraion_res.push_back( to_string(Rcl(0,0))+" "+to_string(Rcl(0,1))+" "+to_string(Rcl(0,2)) );
                 calibraion_res.push_back( to_string(Rcl(1,0))+" "+to_string(Rcl(1,1))+" "+to_string(Rcl(1,2)) );
@@ -637,8 +742,7 @@ int main(int argc, char **argv)
                             to_string(distParameter.at<double>(0,2))+" "+
                             to_string(distParameter.at<double>(0,3))+" "+
                             to_string(distParameter.at<double>(0,4)));
-                FileIO::WriteSting2Txt("/home/result/Extrinsic.txt",calibraion_res);
-
+                
                 vector<string> all_plane;
                 for(int i=0;i<imgnames.size();i++)
                 {
@@ -652,18 +756,121 @@ int main(int argc, char **argv)
                         " "+to_string(cam_planes[i][2](0))+" "+to_string(cam_planes[i][2](1))+" "+to_string(cam_planes[i][2](2))+" "+to_string(cam_planes[i][2](3)));
                     }
                 }
-                FileIO::WriteSting2Txt("/home/result/Planes.txt",all_plane);
+                
+                // 保存到临时文件以便计算误差
+                string temp_extrinsic = "/home/result/Extrinsic_temp.txt";
+                string temp_planes = "/home/result/Planes_temp.txt";
+                FileIO::WriteSting2Txt(temp_extrinsic, calibraion_res);
+                FileIO::WriteSting2Txt(temp_planes, all_plane);
+                
+                // 计算当前迭代的误差
+                cout<<"\n[Iteration "<<(iter+1)<<"] Calculating calibration error..."<<endl;
+                vector<vector<DetailedError>> plane_errors;
+                double mean_normal_error, mean_distance_error;
+                double current_error = calculateExtrinsicError(temp_planes, temp_extrinsic, true, 
+                                                               plane_errors, mean_normal_error, mean_distance_error);
+                cout<<"[Iteration "<<(iter+1)<<"] Mean plane distance error: "<<current_error<<endl;
+                
+                // 记录本次迭代的详细信息到日志
+                all_iterations_log.push_back("========================================");
+                all_iterations_log.push_back("Iteration " + to_string(iter+1));
+                all_iterations_log.push_back("========================================");
+                all_iterations_log.push_back("");
+                
+                // 记录外参
+                all_iterations_log.push_back("Extrinsic Parameters:");
+                all_iterations_log.push_back("Rotation Matrix (Rcl):");
+                all_iterations_log.push_back(to_string(Rcl(0,0)) + " " + to_string(Rcl(0,1)) + " " + to_string(Rcl(0,2)));
+                all_iterations_log.push_back(to_string(Rcl(1,0)) + " " + to_string(Rcl(1,1)) + " " + to_string(Rcl(1,2)));
+                all_iterations_log.push_back(to_string(Rcl(2,0)) + " " + to_string(Rcl(2,1)) + " " + to_string(Rcl(2,2)));
+                all_iterations_log.push_back("Translation Vector (tcl):");
+                all_iterations_log.push_back(to_string(tcl[0]) + " " + to_string(tcl[1]) + " " + to_string(tcl[2]));
+                all_iterations_log.push_back("");
+                
+                // 记录每个平面的误差
+                all_iterations_log.push_back("Plane Errors:");
+                for(int i=0; i<plane_errors.size(); i++)
+                {
+                    for(int j=0; j<plane_errors[i].size(); j++)
+                    {
+                        all_iterations_log.push_back("Frame " + to_string(i) + " Plane " + to_string(j) + ":");
+                        all_iterations_log.push_back("  Normal Error (degrees): " + to_string(plane_errors[i][j].normal_error/PI*180));
+                        all_iterations_log.push_back("  Distance Error: " + to_string(plane_errors[i][j].distance_error));
+                    }
+                }
+                all_iterations_log.push_back("");
+                
+                // 记录平均误差
+                all_iterations_log.push_back("Average Errors:");
+                all_iterations_log.push_back("Mean Normal Error (degrees): " + to_string(mean_normal_error));
+                all_iterations_log.push_back("Mean Distance Error: " + to_string(mean_distance_error));
+                all_iterations_log.push_back("");
+                all_iterations_log.push_back("");
+                
+                // 如果当前误差更小，保存为最优结果
+                if(current_error < best_error)
+                {
+                    best_error = current_error;
+                    best_Rcl = Rcl;
+                    best_Tcl = tcl;
+                    best_calibration_res = calibraion_res;
+                    best_all_plane = all_plane;
+                    best_iteration = iter + 1;
+                    cout<<"[Iteration "<<(iter+1)<<"] *** New best result! Error: "<<best_error<<" ***"<<endl;
+                }
+                else
+                {
+                    cout<<"[Iteration "<<(iter+1)<<"] Current error "<<current_error<<" is larger than best "<<best_error<<endl;
+                }
 
             }//能够找到配对的激光和视觉平面
-        }//外参标定结束
+            else
+            {
+                cout<<"[Iteration "<<(iter+1)<<"] Can not find matched lidar plane and camera plane, skipping this iteration"<<endl;
+                
+                // 记录失败的迭代
+                all_iterations_log.push_back("========================================");
+                all_iterations_log.push_back("Iteration " + to_string(iter+1));
+                all_iterations_log.push_back("========================================");
+                all_iterations_log.push_back("STATUS: FAILED - No matched lidar plane and camera plane found");
+                all_iterations_log.push_back("");
+                all_iterations_log.push_back("");
+            }
+        }//外参标定结束 - 单次迭代结束
+        
+        // 所有迭代完成后，保存最优结果
+        cout<<"\n=========================================="<<endl;
+        cout<<"All iterations completed!"<<endl;
+        cout<<"=========================================="<<endl;
+        
+        // 保存所有迭代的详细日志
+        FileIO::WriteSting2Txt("/home/result/Calibration_Iterations_Log.txt", all_iterations_log);
+        cout<<"All iterations log saved to: /home/result/Calibration_Iterations_Log.txt"<<endl<<endl;
+        
+        if(best_iteration > 0)
+        {
+            cout<<"Best iteration: "<<best_iteration<<endl;
+            cout<<"Best error: "<<best_error<<endl;
+            cout<<"Best Rcl:"<<endl<<best_Rcl<<endl;
+            cout<<"Best Tcl: "<<best_Tcl.transpose()<<endl;
+            
+            // 保存最优结果到最终文件
+            FileIO::WriteSting2Txt("/home/result/Extrinsic.txt", best_calibration_res);
+            FileIO::WriteSting2Txt("/home/result/Planes.txt", best_all_plane);
+            cout<<"\nBest calibration results saved to:"<<endl;
+            cout<<"  /home/result/Extrinsic.txt"<<endl;
+            cout<<"  /home/result/Planes.txt"<<endl;
+            
+            // 最后再计算一次详细误差
+            cout<<"\nFinal calibration error analysis:"<<endl;
+            vector<vector<DetailedError>> final_errors;
+            double final_mean_normal, final_mean_distance;
+            calculateExtrinsicError("/home/result/Planes.txt", "/home/result/Extrinsic.txt", true,
+                                   final_errors, final_mean_normal, final_mean_distance);
+        }
         else
-            cout<<"Can not find matched lidar plane and camera plane"<<endl;
-    }
-
-    //lidar
-    string path1,path2;
-    path1="/home/result/Planes.txt";
-    path2="/home/result/Extrinsic.txt";
-    std::cout<<"start calculate error"<<std::endl;
-    calculateExtrinsicError(path1,path2);
+        {
+            cout<<"Error: No valid calibration result found in any iteration!"<<endl;
+        }
+    }//整个外参标定结束
 }

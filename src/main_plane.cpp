@@ -35,6 +35,14 @@
 using namespace std;
 
 vector<pcl::PointXYZ> board_points;
+bool wait_enter = false;
+
+// RANSAC参数
+double first_ransac_radius = 0.4;
+double first_ransac_threshold = 0.06;
+double second_ransac_radius = 0.8;
+double second_ransac_y_distance_threshold = 0.02;
+double second_ransac_threshold = 0.015;
 
 // 点击回调函数
 void waypointCallback(const geometry_msgs::PointStampedConstPtr& waypoint)
@@ -69,6 +77,16 @@ int main(int argc, char **argv)
     n.param("/plane_processor/ransac_distance_threshold", ransac_distance_threshold, 1.0);
     n.param("/plane_processor/ransac_normal_threshold", ransac_normal_threshold, 0.05);
     n.param("/plane_processor/ransac_radius_threshold", ransac_radius_threshold, 0.03);
+    
+    // 设置是否启用按回车键等待功能
+    n.param("/plane_processor/wait_enter", wait_enter, false);
+    
+    // 设置RANSAC参数
+    n.param("/plane_processor/first_ransac_radius", first_ransac_radius, 0.4);
+    n.param("/plane_processor/first_ransac_threshold", first_ransac_threshold, 0.06);
+    n.param("/plane_processor/second_ransac_radius", second_ransac_radius, 0.8);
+    n.param("/plane_processor/second_ransac_y_distance_threshold", second_ransac_y_distance_threshold, 0.02);
+    n.param("/plane_processor/second_ransac_threshold", second_ransac_threshold, 0.015);
     
     // 输入和输出目录
     string input_dir = path_root + "/lidar_plane__";
@@ -202,7 +220,7 @@ int main(int argc, char **argv)
         cout << "\nStarting first RANSAC plane detection..." << endl;
         bool first_success = PCLlib::FirstRansacDetection(
             first_plane_model, center, target, seed_point,
-            0.4, 0.06, 20);
+            first_ransac_radius, first_ransac_threshold, 20);
         
         if (!first_success)
         {
@@ -229,7 +247,7 @@ int main(int argc, char **argv)
         cout << "\nStarting second RANSAC plane detection..." << endl;
         PCLlib::SecondRansacDetection(
             final_plane_model, target, seed_point, first_plane_model,
-            ransac_distance_threshold, ransac_normal_threshold, ransac_radius_threshold, 20, 50.0);  // 平面点强度设为50
+            second_ransac_radius, second_ransac_y_distance_threshold, second_ransac_threshold, 20, 50.0);  // 平面点强度设为50
         
         // 将非平面点的强度设为70
         cout << "Setting non-plane points intensity to 70..." << endl;
@@ -297,9 +315,17 @@ int main(int argc, char **argv)
         }
         
         cout << "Frame " << i << " processing completed." << endl;
-       // std::this_thread::sleep_for(std::chrono::seconds(1));
-        cout << "Press Enter to continue to next frame..." << endl;
-        cin.get();
+        
+        // 根据参数决定是否等待用户按回车键
+        if (wait_enter)
+        {
+            cout << "Press Enter to continue to next frame..." << endl;
+            cin.get();
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
     }
     
 

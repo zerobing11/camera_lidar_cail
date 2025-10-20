@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>  
 
-  <node pkg="camera_calibration" type="camera_calibration" name="camera_calibration" respawn="false" output="screen">
+  <node pkg="camera_calibration" type="camera_calibration_muti" name="camera_calibration_muti" respawn="false" output="screen">
     <param name="lidar_config_path" type="string" value="/home/conf/NDTConfig.txt" />
     <param name="root" type="string" value="/home/data" />
     <param name="path_Extrinsic" type="string" value="/home/conf/Extrinsic.txt" />
@@ -11,7 +11,7 @@
     <param name="corner_detect_threshold" type="double" value="0.05" />
     <param name="chessboard_threshold" type="double" value="1.4" />
     <!-- 是否启用按回车键等待功能 -->
-    <param name="wait_enter" type="bool" value="true" />
+    <param name="wait_enter" type="bool" value="false" />
     <!-- RANSAC参数 -->
     <param name="first_ransac_radius" type="double" value="0.3" />
     <param name="first_ransac_threshold" type="double" value="0.05" />

@@ -269,10 +269,10 @@ namespace PCLlib
 		 return P;
     }
 
-	// 第一次RANSAC平面检测函数 - 在小范围内提取初始平面
+	// 第一次RANSAC平面检测函数 - 在小范围内提取初始平面，然后将小范围内的点都设置成某个固定强度值
 	bool FirstRansacDetection(Eigen::Vector4f &first_plane_model, Eigen::Vector3f &center,
 							  pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point, 
-							  float x1_radius=0.8, float ransac_radius=0.02, int min_points=20)
+							  float x1_radius, float x1_ransac_threshold, int min_points=20)
 	{
 		cout<<"Starting first RANSAC plane detection..."<<endl;
 		cout<<"Target point: ("<<target_point.x<<", "<<target_point.y<<", "<<target_point.z<<")"<<endl;
@@ -313,7 +313,7 @@ namespace PCLlib
 
 		pcl::SampleConsensusModelPlane<pcl::PointXYZI>::Ptr model_p1(new pcl::SampleConsensusModelPlane<pcl::PointXYZI>(first_stage_points.makeShared()));
 		pcl::RandomSampleConsensus<pcl::PointXYZI> ransac1(model_p1);
-		ransac1.setDistanceThreshold(ransac_radius); // 第一次RANSAC的距离阈值
+		ransac1.setDistanceThreshold(x1_ransac_threshold); // 第一次RANSAC的距离阈值
 		ransac1.computeModel();
 		ransac1.getInliers(first_inliers);
 
@@ -372,11 +372,11 @@ namespace PCLlib
 		return true;
 	}
 
-	// 第二次RANSAC平面检测函数 - 在大范围内提取精确平面
+	// 第二次RANSAC平面检测函数 - 在大范围内提取精确平面，利用第一次平面拟合的平面方程在一个更大域内搜索，距离第一次拟合出来的平面方程足够进的点会纳入第二次平平面拟合点
 	bool SecondRansacDetection(Eigen::Vector4f &final_plane_model,
 							   pcl::PointCloud<pcl::PointXYZI> &global_map, const pcl::PointXYZ &target_point,
 							   const Eigen::Vector4f &first_plane_model,
-							   float x2_radius=1.5, float y_distance_threshold=0.05,float ransac_radius=0.01, int min_points=20,
+							   float x2_radius, float y_distance_threshold,float x2_ransac_threshold, int min_points=20,
 							   float plane_intensity=100.0)
 	{
 		cout<<"Starting second RANSAC plane detection..."<<endl;
@@ -425,7 +425,7 @@ namespace PCLlib
 
 			pcl::SampleConsensusModelPlane<pcl::PointXYZI>::Ptr model_p2(new pcl::SampleConsensusModelPlane<pcl::PointXYZI>(second_stage_points.makeShared()));
 			pcl::RandomSampleConsensus<pcl::PointXYZI> ransac2(model_p2);
-			ransac2.setDistanceThreshold(ransac_radius); // 第二次RANSAC使用更严格的距离阈值
+			ransac2.setDistanceThreshold(x2_ransac_threshold); // 第二次RANSAC使用更严格的距离阈值
 			ransac2.computeModel();
 			ransac2.getInliers(second_inliers);
 
