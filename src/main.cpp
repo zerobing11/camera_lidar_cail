@@ -221,16 +221,16 @@ int main(int argc, char **argv)
     if(getIntrincMatrix)
     {
         CAMERA::Camera Cam(corner_height,corner_width,path_root,corner_detect_threshold,chessboard_threshold);
-        vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
-        for(int i=0;i<imgnames.size();i++)//载入标定图像imgnames.size()
+        vector<string> lidar_img_names = FileIO::ReadTxt2String(path_names,false);
+        for(int i=0;i<lidar_img_names.size();i++)//载入标定图像imgnames.size()
         {
-            vector<string> name = read_format(imgnames[i]," ");
-            string filename=path_root+"/img/"+name[1]+".png";
-            bool ischoose=Cam.add(filename);
+            vector<string> lidar_img_name = read_format(lidar_img_names[i]," ");
+            string img_name=path_root+"/img/"+lidar_img_name[1]+".png";
+            bool ischoose=Cam.add(img_name);
             if(ischoose)
             {
                 camera_valid_frame.push_back(i);
-                cout<<"有效帧 " << camera_valid_frame.size() << ": " << name[1] << ".png" << endl;
+                cout<<"有效帧 " << camera_valid_frame.size() << ": " << lidar_img_name[1] << ".png" << endl;
             }
         }
 
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
         Eigen::Vector4f plane_model;
         Eigen::Vector3f center;
         PCLlib::NDT ndt(lidar_config_path);//ndt初始化构造函数
-        vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
+        vector<string> lidar_img_names = FileIO::ReadTxt2String(path_names,false);
         vector<Eigen::Vector4f> tmp_plane_params;
         vector<Eigen::Vector3f> plane_center;
         for(int i=0;i<camera_valid_frame.size();i++)
@@ -277,10 +277,10 @@ int main(int argc, char **argv)
             target.clear();
 
             int ind=camera_valid_frame[i];
-            vector<string> name = read_format(imgnames[ind]," ");//读取点云文件
+            vector<string> img_lidar_name = read_format(lidar_img_names[ind]," ");//读取点云文件
             // 直接读取PLY点云文件
-            string filename=path_root+"/lidar/"+name[0]+".ply";
-            target=Load_ply(filename);
+            string lidar_name=path_root+"/lidar/"+img_lidar_name[0]+".ply";
+            target=Load_ply(lidar_name);
             std::cout<<"target.size():"<<target.size()<<std::endl;
 
 
@@ -640,7 +640,7 @@ int main(int argc, char **argv)
                 FileIO::WriteSting2Txt("/home/result/Extrinsic.txt",calibraion_res);
 
                 vector<string> all_plane;
-                for(int i=0;i<imgnames.size();i++)
+                for(int i=0;i<lidar_img_names.size();i++)
                 {
                     if((cam_planes.find(i)!=cam_planes.end())&&(lidar_planes.find(i)!=lidar_planes.end()))
                     {

@@ -139,7 +139,7 @@ struct DetailedError {
     double distance_error;    // 距离误差
 };
 
-// 计算标定误差并返回平均平面距离误差，同时输出详细误差信息
+// 计算标定误差并返回平均平面距离误差
 double calculateExtrinsicError(string planes_path,string extrinsic_path, bool verbose,
                                vector<vector<DetailedError>>& plane_errors,
                                double& mean_normal_error, double& mean_distance_error)
@@ -280,90 +280,115 @@ int main(int argc, char **argv)
     n.getParam("/camera_calibration_muti/sample_iter", sample_iter);
     n.getParam("/camera_calibration_muti/sample_data_num", sample_data_num);
 
+    // 读取所有图像名称（在迭代外部读取一次）
+    vector<string> all_lidar_img_names = FileIO::ReadTxt2String(path_names,false);
+    
+    // 定义已标定好的相机内参（在迭代外部定义）
+    cv::Mat predefined_intrinsic = (cv::Mat_<double>(3,3) <<
+            909.5545654296875, 0.0, 630.40673828125,
+            0.0, 907.0646362304688, 371.5163879394531,
+            0.0, 0.0, 1.0);
 
-    //标定
-    if(getIntrincMatrix)
+    cv::Mat predefined_distortion = (cv::Mat_<double>(1,5) <<
+        0.0, 0.0, 0.0, 0.0, 0.0);
+
+    // 用于记录最优结果
+    double best_error = 1e10;
+    Eigen::Matrix3d best_Rcl;
+    Eigen::Vector3d best_Tcl;
+    vector<string> best_calibration_res;
+    vector<string> best_all_plane;
+    int best_iteration = -1;
+    
+    // 用于保存所有迭代的详细信息
+    vector<string> all_iterations_log;
+    
+    cout<<"\n=========================================="<<endl;
+    cout<<"Start Random Sampling Calibration"<<endl;
+    cout<<"Total iterations: "<<sample_iter<<endl;
+    cout<<"Total available frames: "<<all_lidar_img_names.size()<<endl;
+    cout<<"Frames per iteration: "<<(sample_data_num > 0 ? sample_data_num : (int)all_lidar_img_names.size())<<endl;
+    cout<<"=========================================="<<endl<<endl;
+    
+    // 开始多次迭代标定
+    for(int iter = 0; iter < sample_iter; iter++)
     {
-        CAMERA::Camera Cam(corner_height,corner_width,path_root,corner_detect_threshold,chessboard_threshold);
-        vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
-        for(int i=0;i<imgnames.size();i++)//载入标定图像imgnames.size()
+        cout<<"\n==================== Iteration "<<(iter+1)<<"/"<<sample_iter<<" ===================="<<endl;
+        
+        // 清空之前的全局变量
+        camera_valid_frame.clear();
+        lidar_planes.clear();
+        lidarCenters.clear();
+        board_points.clear();
+        cam_planes.clear();
+        FirstLidarFrame = true;
+        
+        // 生成本次迭代的采样索引（对原始数据进行采样）
+        vector<int> sample_indices = generateSampleIndices(all_lidar_img_names.size(), sample_data_num, iter);
+        
+        cout<<"Selected frame indices for this iteration: ";
+        for(int idx : sample_indices) {
+            cout<<idx<<" ";
+        }
+        cout<<endl<<endl;
+        
+        //标定 - 相机内参和平面检测
+        if(getIntrincMatrix)
         {
-            vector<string> name = read_format(imgnames[i]," ");
-            string filename=path_root+"/img/"+name[1]+".png";
-            bool ischoose=Cam.add(filename);
-            if(ischoose)
+            CAMERA::Camera Cam(corner_height,corner_width,path_root,corner_detect_threshold,chessboard_threshold);
+            
+            // 只处理采样的帧
+            for(int i=0; i<sample_indices.size(); i++)
             {
-                camera_valid_frame.push_back(i);
-                cout<<"有效帧 " << camera_valid_frame.size() << ": " << name[1] << ".png" << endl;
+                int frame_idx = sample_indices[i];
+                vector<string> lidar_img_name = read_format(all_lidar_img_names[frame_idx]," ");
+                string img_name=path_root+"/img/"+lidar_img_name[1]+".png";
+                bool ischoose=Cam.add(img_name);
+                if(ischoose)
+                {
+                    camera_valid_frame.push_back(frame_idx);  // 保存原始索引
+                    cout<<"[Iteration "<<(iter+1)<<"] 有效帧 " << camera_valid_frame.size() 
+                        << ": frame_"<<frame_idx<<" - " << lidar_img_name[1] << ".png" << endl;
+                }
             }
+
+            if(camera_valid_frame.size() == 0)
+            {
+                cout<<"[Iteration "<<(iter+1)<<"] Warning: No valid camera frames detected! Skipping this iteration."<<endl;
+                
+                // 记录失败的迭代
+                all_iterations_log.push_back("========================================");
+                all_iterations_log.push_back("Iteration " + to_string(iter+1));
+                all_iterations_log.push_back("========================================");
+                all_iterations_log.push_back("STATUS: FAILED - No valid camera frames detected");
+                all_iterations_log.push_back("");
+                all_iterations_log.push_back("");
+                continue;  // 跳到下一次迭代
+            }
+
+            Cam.calibration(predefined_intrinsic, predefined_distortion);//使用预定义内参并计算外参
+            Cam.show();//显示标定结果
+            Cam.GetIntrincMatrix(intrincMatrix);
+            Cam.GetDistParameter(distParameter);
+            std::cout<<"[Iteration "<<(iter+1)<<"] intrinsic:"<<intrincMatrix<<std::endl;
+            std::cout<<"[Iteration "<<(iter+1)<<"] distortion:"<<distParameter<<std::endl;
+            Cam.GetPlanesModels(cam_planes);//获取标定板平面模型
+            cv::destroyAllWindows();
         }
 
-        // 定义已标定好的相机内参
-        // cv::Mat predefined_intrinsic = (cv::Mat_<double>(3,3) <<
-        //     606.3696899414062, 0.0, 417.6044616699219,
-        //     0.0, 604.7097778320312, 247.67758178710938,
-        //     0.0, 0.0, 1.0);
-        //
-        // cv::Mat predefined_distortion = (cv::Mat_<double>(1,5) <<
-        //     0.0, 0.0, 0.0, 0.0, 0.0);
-        cv::Mat predefined_intrinsic = (cv::Mat_<double>(3,3) <<
-                909.5545654296875, 0.0, 630.40673828125,
-                0.0, 907.0646362304688, 371.5163879394531,
-                0.0, 0.0, 1.0);
-
-        cv::Mat predefined_distortion = (cv::Mat_<double>(1,5) <<
-            0.0, 0.0, 0.0, 0.0, 0.0);
-
-        Cam.calibration(predefined_intrinsic, predefined_distortion);//使用预定义内参并计算外参
-        Cam.show();//显示标定结果
-        Cam.GetIntrincMatrix(intrincMatrix);
-        Cam.GetDistParameter(distParameter);
-        std::cout<<"intrinsic:"<<intrincMatrix<<std::endl;
-        std::cout<<"distortion:"<<distParameter<<std::endl;
-        Cam.GetPlanesModels(cam_planes);//获取标定板平面模型
-        cv::destroyAllWindows();
-    }
-
-    //lidar - 多次随机采样标定
-    if(getExtrinsic)
-    {
-        // 读取所有图像名称
-        vector<string> imgnames = FileIO::ReadTxt2String(path_names,false);
-        
-        // 用于记录最优结果
-        double best_error = 1e10;
-        Eigen::Matrix3d best_Rcl;
-        Eigen::Vector3d best_Tcl;
-        vector<string> best_calibration_res;
-        vector<string> best_all_plane;
-        int best_iteration = -1;
-        
-        // 用于保存所有迭代的详细信息
-        vector<string> all_iterations_log;
-        
-        cout<<"=========================================="<<endl;
-        cout<<"Start Random Sampling Calibration"<<endl;
-        cout<<"Total iterations: "<<sample_iter<<endl;
-        cout<<"Data per iteration: "<<(sample_data_num > 0 ? sample_data_num : (int)camera_valid_frame.size())<<endl;
-        cout<<"=========================================="<<endl<<endl;
-        
-        // 开始多次迭代标定
-        for(int iter = 0; iter < sample_iter; iter++)
+        //lidar - 外参标定（针对当前迭代的采样数据）
+        if(getExtrinsic && camera_valid_frame.size() > 0)
         {
-            cout<<"\n==================== Iteration "<<(iter+1)<<"/"<<sample_iter<<" ===================="<<endl;
+            // 重新构建sample_indices，使其对应camera_valid_frame中的索引
+            vector<int> valid_sample_indices;
+            for(int i=0; i<camera_valid_frame.size(); i++)
+            {
+                valid_sample_indices.push_back(i);
+            }
             
-            // 清空之前的全局变量
-            lidar_planes.clear();
-            lidarCenters.clear();
-            board_points.clear();
-            FirstLidarFrame = true;
-            
-            // 生成本次迭代的采样索引
-            vector<int> sample_indices = generateSampleIndices(camera_valid_frame.size(), sample_data_num, iter);
-            
-            cout<<"Selected frames for this iteration: ";
-            for(int idx : sample_indices) {
-                cout<<camera_valid_frame[idx]<<" ";
+            cout<<"Valid camera frames for lidar processing: ";
+            for(int idx : camera_valid_frame) {
+                cout<<idx<<" ";
             }
             cout<<endl<<endl;
             
@@ -376,15 +401,15 @@ int main(int argc, char **argv)
             vector<Eigen::Vector4f> tmp_plane_params;
             vector<Eigen::Vector3f> plane_center;
             
-            for(int i=0;i<sample_indices.size();i++)
+            for(int i=0;i<valid_sample_indices.size();i++)
             {
                 target.clear();
 
-                int ind=camera_valid_frame[sample_indices[i]];
-                vector<string> name = read_format(imgnames[ind]," ");//读取点云文件
+                int ind=camera_valid_frame[valid_sample_indices[i]];
+                vector<string> lidar_img_name = read_format(all_lidar_img_names[ind]," ");//读取点云文件
             // 直接读取PLY点云文件
-            string filename=path_root+"/lidar/"+name[0]+".ply";
-            target=Load_ply(filename);
+            string lidar_name=path_root+"/lidar/"+lidar_img_name[0]+".ply";
+            target=Load_ply(lidar_name);
             std::cout<<"target.size():"<<target.size()<<std::endl;
 
 
@@ -744,7 +769,7 @@ int main(int argc, char **argv)
                             to_string(distParameter.at<double>(0,4)));
                 
                 vector<string> all_plane;
-                for(int i=0;i<imgnames.size();i++)
+                for(int i=0;i<all_lidar_img_names.size();i++)
                 {
                     if((cam_planes.find(i)!=cam_planes.end())&&(lidar_planes.find(i)!=lidar_planes.end()))
                     {
@@ -836,41 +861,41 @@ int main(int argc, char **argv)
                 all_iterations_log.push_back("");
                 all_iterations_log.push_back("");
             }
-        }//外参标定结束 - 单次迭代结束
+        }//外参标定结束（单次迭代）
         
-        // 所有迭代完成后，保存最优结果
-        cout<<"\n=========================================="<<endl;
-        cout<<"All iterations completed!"<<endl;
-        cout<<"=========================================="<<endl;
+    }//单次迭代结束 - for循环结束
+    
+    // 所有迭代完成后，保存最优结果
+    cout<<"\n=========================================="<<endl;
+    cout<<"All iterations completed!"<<endl;
+    cout<<"=========================================="<<endl;
+    
+    // 保存所有迭代的详细日志
+    FileIO::WriteSting2Txt("/home/result/Calibration_Iterations_Log.txt", all_iterations_log);
+
+    if(best_iteration > 0)
+    {
+        cout<<"Best iteration: "<<best_iteration<<endl;
+        cout<<"Best error: "<<best_error<<endl;
+        cout<<"Best Rcl:"<<endl<<best_Rcl<<endl;
+        cout<<"Best Tcl: "<<best_Tcl.transpose()<<endl;
         
-        // 保存所有迭代的详细日志
-        FileIO::WriteSting2Txt("/home/result/Calibration_Iterations_Log.txt", all_iterations_log);
-        cout<<"All iterations log saved to: /home/result/Calibration_Iterations_Log.txt"<<endl<<endl;
+        // 保存最优结果到最终文件
+        FileIO::WriteSting2Txt("/home/result/Extrinsic.txt", best_calibration_res);
+        FileIO::WriteSting2Txt("/home/result/Planes.txt", best_all_plane);
+        cout<<"\nBest calibration results saved to:"<<endl;
+        cout<<"  /home/result/Extrinsic.txt"<<endl;
+        cout<<"  /home/result/Planes.txt"<<endl;
         
-        if(best_iteration > 0)
-        {
-            cout<<"Best iteration: "<<best_iteration<<endl;
-            cout<<"Best error: "<<best_error<<endl;
-            cout<<"Best Rcl:"<<endl<<best_Rcl<<endl;
-            cout<<"Best Tcl: "<<best_Tcl.transpose()<<endl;
-            
-            // 保存最优结果到最终文件
-            FileIO::WriteSting2Txt("/home/result/Extrinsic.txt", best_calibration_res);
-            FileIO::WriteSting2Txt("/home/result/Planes.txt", best_all_plane);
-            cout<<"\nBest calibration results saved to:"<<endl;
-            cout<<"  /home/result/Extrinsic.txt"<<endl;
-            cout<<"  /home/result/Planes.txt"<<endl;
-            
-            // 最后再计算一次详细误差
-            cout<<"\nFinal calibration error analysis:"<<endl;
-            vector<vector<DetailedError>> final_errors;
-            double final_mean_normal, final_mean_distance;
-            calculateExtrinsicError("/home/result/Planes.txt", "/home/result/Extrinsic.txt", true,
-                                   final_errors, final_mean_normal, final_mean_distance);
-        }
-        else
-        {
-            cout<<"Error: No valid calibration result found in any iteration!"<<endl;
-        }
-    }//整个外参标定结束
+        // 最后再计算一次详细误差
+        cout<<"\nFinal calibration error analysis:"<<endl;
+        vector<vector<DetailedError>> final_errors;
+        double final_mean_normal, final_mean_distance;
+        calculateExtrinsicError("/home/result/Planes.txt", "/home/result/Extrinsic.txt", true,
+                               final_errors, final_mean_normal, final_mean_distance);
+    }
+    else
+    {
+        cout<<"Error: No valid calibration result found in any iteration!"<<endl;
+    }
 }
