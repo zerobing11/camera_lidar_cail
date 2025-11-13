@@ -283,20 +283,18 @@ int main(int argc, char **argv)
             target=Load_ply(lidar_name);
             std::cout<<"target.size():"<<target.size()<<std::endl;
 
-
+            cout<<"------------Processing frame: "<<ind<<"------------"<<endl;
             if(!FirstLidarFrame)
             {
                 //target已经在上面加载了，不需要重复加载
-                cout<<"start transform index:"<<ind<<endl;
-                cout<<i<<" frames has transformed,num of need to NDT:"<<camera_valid_frame.size()-i<<endl;
+                // cout<<"start transform index:"<<ind<<endl;
+                // cout<<i<<" frames has transformed,num of need to NDT:"<<camera_valid_frame.size()-i<<endl;
                 ndt.AddCurrentCloud(target,Twl);
                 Tlw=Twl.inverse();
                 pcl::PointCloud<pcl::PointXYZI>::Ptr trans_ptr(new pcl::PointCloud<pcl::PointXYZI>());//当前帧变换到世界地图中的坐标
                 //pcl::PointCloud<pcl::PointXYZI>::Ptr trans_ptr2(new pcl::PointCloud<pcl::PointXYZI>());//当前帧变换到世界地图中的坐标
 			    pcl::transformPointCloud(choose_points, *trans_ptr, Tlw);//将当前帧的点云scan_ptr变化到世界地图下得到transformed_scan_ptr
                 //pcl::transformPointCloud(target, *trans_ptr2, Twl);//将当前帧的点云scan_ptr变化到世界地图下得到transformed_scan_ptr
-
-                cout<<"Processing frame "<<ind<<" with "<<trans_ptr->points.size()<<" transformed points"<<endl;
 
                 for(int j=0;j<3;j++)
                 {
@@ -477,8 +475,10 @@ int main(int argc, char **argv)
                     bool choose=PCLlib::CheckBoardPlane(tmp_plane_params);
                     if(choose)
                     {
+                        cout<<i<<" index:"<<ind<<" is choosen"<<endl<<endl;
                         lidar_planes.insert(pair<int,vector<Eigen::Vector4f>>(ind,tmp_plane_params));
                         lidarCenters.push_back(plane_center);
+                        cout<<"The numbers of lidar-camera-calibration now:"<<lidar_planes.size()<<endl;
                     }
                     for(int i=0;i<3;i++)
                     {

@@ -729,6 +729,13 @@ namespace CAMERA
             //初始化
             isMouseCallback = false;
             detectfirstframe = true;
+            // 保存第一次确认后的图像
+            string sorted_debug_dir = path_root + "/img_sorted_boards";
+            string mkdir_cmd = "mkdir -p " + sorted_debug_dir;
+            system(mkdir_cmd.c_str());
+            string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_sorted.png";
+            cv::imwrite(sorted_save_path, img);
+            cout << "已保存排序后的图像到: " << sorted_save_path << endl;
             //最后交换顺序
             struct BOARD board0 = cur_boards[reorder_info[0]];
             struct BOARD board1 = cur_boards[reorder_info[1]];
@@ -762,6 +769,13 @@ namespace CAMERA
             }
             cv::imshow ( "Image", img);
             cv::waitKey(50);  // 延长到100ms，让边框检测结果更清楚
+
+            // 保存后续自动处理的图像
+            string sorted_debug_dir = path_root + "/img_sorted_boards";
+            string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_sorted.png";
+            cv::imwrite(sorted_save_path, img);
+            cout << "已保存排序后的图像到: " << sorted_save_path << endl;
+
             //最后交换顺序
             struct BOARD board0 = cur_boards[0];
             struct BOARD board1 = cur_boards[1];
@@ -860,105 +874,66 @@ namespace CAMERA
     }
 
 
-    bool Camera::add(string path)
+      bool Camera::add(string path)
     {
-        // 读取原始图像（彩色模式）
         org_img=cv::imread(path,1);
-        // 克隆图像用于处理，避免修改原始图像
         img = org_img.clone();
-        // 增加图像索引计数器
         img_indx++;
-        // 在图像上绘制当前帧编号，用于可视化显示
         cv::putText(img,std::to_string(img_indx),cv::Point2f(10,30),cv::FONT_HERSHEY_SIMPLEX,0.7,cv::Scalar(155,155,155),3);
-        
-        // 如果是第一帧，进行初始化
+
         if(!initialization)
             init_img();
-            
-        // 清除之前的数据
+
         DataClear();
-        
-        // 创建角点检测器和棋盘格结构体
+
         CornerDetAC corner_detector(img);
         ChessboradStruct chessboardstruct;
-
-        // 检测棋盘格角点，使用配置的阈值
-        // corners_p: 输出参数，存储检测到的角点像素坐标；
-        // corners_s: 输出参数，存储角点的分数/质量信息
+        // 检测棋盘格角点；corners_p:存储检测到的角点像素坐标；corners_s:存储角点的坐标、主方向向量、分数
          cout << "===  帧" << img_indx << " ===" << endl;
-        // cout << "角点检测阈值: " << corner_detect_threshold << endl;
-        
         corner_detector.detectCorners(img, corners_p, corners_s, corner_detect_threshold);
-        
-        // 调试信息：角点检测结果
          cout << "检测到的角点数量: " << corners_s.p.size() << endl;
-        // cout << "角点质量分数数量: " << corners_s.score.size() << endl;
-        // if(corners_s.p.size() > 0) {
-        //     cout << "角点质量分数范围: [" << *min_element(corners_s.score.begin(), corners_s.score.end()) 
-        //          << ", " << *max_element(corners_s.score.begin(), corners_s.score.end()) << "]" << endl;
-        // }
 
- //由此往下是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
+
         // 可视化角点并保存图像
         cv::Mat corner_vis_img = org_img.clone();
         for(int i = 0; i < corners_s.p.size(); i++) {
             cv::Point2f corner_point = corners_s.p[i];
-            // 根据角点质量分数设置颜色：红色(低质量) -> 黄色(中等) -> 绿色(高质量)
             float score = corners_s.score[i];
             cv::Scalar color;
-            if(score < 0.1) {
-                color = cv::Scalar(0, 0, 255); // 红色 - 低质量
-            } else if(score < 0.15) {
-                color = cv::Scalar(0, 165, 255); // 橙色 - 中等质量
-            } else {
-                color = cv::Scalar(0, 255, 0); // 绿色 - 高质量
-            }
-            
-            // 画角点圆圈
+            color = cv::Scalar(0, 255, 0);
             cv::circle(corner_vis_img, corner_point, 6, color, 2);
-            // 标注角点序号
-            cv::putText(corner_vis_img, std::to_string(i), 
+            cv::putText(corner_vis_img, std::to_string(i),
                        cv::Point2f(corner_point.x + 8, corner_point.y - 8),
                        cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
         }
-        
-        // 创建保存目录
         string corner_debug_dir = path_root + "/img_corner_test";
         string mkdir_cmd = "mkdir -p " + corner_debug_dir;
         system(mkdir_cmd.c_str());
-        
-        // 保存角点可视化图像
-        string corner_save_path = corner_debug_dir + "/frame_" + 
+        string corner_save_path = corner_debug_dir + "/frame_" +
                                  std::to_string(img_indx) + "_corners.png";
         cv::imwrite(corner_save_path, corner_vis_img);
-        // cout << "角点可视化图像已保存到: " << corner_save_path << endl;
-//由此往上是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
 
+
+
+        //棋盘格检测
         ImageChessesStruct ics;
         chessboardstruct.chessboardsFromCorners(corners_s, chessboards, chessboard_threshold);
-        
-        // 调试信息：棋盘格识别结果
          cout << "识别到的棋盘格数量: " << chessboards.size() << endl;
 
 
-//由此往下是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
-        // 可视化棋盘格识别结果
+        //棋盘格可视化
         cv::Mat chessboard_vis_img = org_img.clone();
         vector<cv::Scalar> board_colors = {
-            cv::Scalar(255, 0, 0),   // 蓝色
-            cv::Scalar(0, 255, 0),   // 绿色
-            cv::Scalar(0, 0, 255),   // 红色
-            cv::Scalar(255, 255, 0), // 青色
-            cv::Scalar(255, 0, 255), // 品红色
+            cv::Scalar(255, 0, 0),
+            cv::Scalar(0, 255, 0),
+            cv::Scalar(0, 0, 255),
+            cv::Scalar(255, 255, 0),
+            cv::Scalar(255, 0, 255),
         };
-
         for(int board_idx = 0; board_idx < chessboards.size() && board_idx < 5; board_idx++)
         {
             cv::Scalar color = board_colors[board_idx];
             cv::Mat& board = chessboards[board_idx];
-
-            // cout << "绘制棋盘格" << board_idx << "的角点分布..." << endl;
-
             for(int row = 0; row < board.rows; row++)
             {
                 for(int col = 0; col < board.cols; col++)
@@ -967,16 +942,13 @@ namespace CAMERA
                     if(corner_idx >= 0 && corner_idx < corners_s.p.size())
                     {
                         cv::Point2f corner_point = corners_s.p[corner_idx];
-
                         // 画角点圆圈
                         cv::circle(chessboard_vis_img, corner_point, 8, color, 3);
-
                         // 标注棋盘格内的位置(row,col)
                         string pos_label = "(" + std::to_string(row) + "," + std::to_string(col) + ")";
                         cv::putText(chessboard_vis_img, pos_label,
                                    cv::Point2f(corner_point.x + 10, corner_point.y - 10),
                                    cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1);
-
                         // 画连接线构成网格
                         if(col < board.cols - 1) // 水平连线
                         {
@@ -999,7 +971,6 @@ namespace CAMERA
                     }
                 }
             }
-
             // 在棋盘格左上角标注棋盘格编号和尺寸
             if(board.rows > 0 && board.cols > 0)
             {
@@ -1015,7 +986,6 @@ namespace CAMERA
                 }
             }
         }
-
         // 标记未被使用的角点
         vector<bool> used_corners(corners_s.p.size(), false);
         for(int board_idx = 0; board_idx < chessboards.size(); board_idx++)
@@ -1033,7 +1003,6 @@ namespace CAMERA
                 }
             }
         }
-
         // 绘制未被使用的角点
         int unused_count = 0;
         for(int i = 0; i < corners_s.p.size(); i++)
@@ -1051,32 +1020,28 @@ namespace CAMERA
             }
         }
         // cout << "未被使用的角点数量: " << unused_count << endl;
-
-        // 保存棋盘格可视化图像
         string chessboard_save_path = corner_debug_dir + "/frame_" +
                                      std::to_string(img_indx) + "_chessboards.png";
         cv::imwrite(chessboard_save_path, chessboard_vis_img);
-        // cout << "棋盘格可视化图像已保存到: " << chessboard_save_path << endl;
 
-//由此往上是可视化。。。。。。。。。。。。。。。。。。。。。。。。。。。。。。
+
 
         bool ischoose = false; // 标记当前帧是否被选中用于标定
-        
         // 检查当前帧是否为有效帧（角点数量正确）
         if(Ensure_ValidFrame(chessboards))
         {
             // 选择有效帧，判断该帧是否适合用于标定
             ischoose =choose_vaild_frame();
-            
+
             // 根据选择结果绘制不同颜色的矩形框
             if(ischoose)
                 cv::rectangle(img, rect, cv::Scalar(0, 255, 0), 2); // 绿色：被选中
             else
                 cv::rectangle(img, rect, cv::Scalar(0, 0, 255), 2); // 红色：未被选中
-                
+
             // 如果是第一帧，调整标定板顺序
             sort_boards();
-            
+
             // 收集当前帧所有三个标定板的角点
             vector<cv::Point2f> three_bd_corners;
             for(int indx_bd = 0;indx_bd<3;indx_bd++)
@@ -1084,7 +1049,7 @@ namespace CAMERA
                 for(int i=0;i<pre_boards[indx_bd].orderd_corners.size();i++)
                     three_bd_corners.push_back(pre_boards[indx_bd].orderd_corners[i]);
             }
-            
+
             // 如果该帧被选中，保存角点信息用于标定
             if(ischoose)
             {
@@ -1103,31 +1068,39 @@ namespace CAMERA
                 vector<Point2f> curr_first_edge_points;
                 vector<unsigned char> status;  // 跟踪状态
                 vector<float> error;           // 跟踪误差
-                
+
                 // 使用金字塔LK光流算法跟踪特征点
                 cv::calcOpticalFlowPyrLK(pre_img,img,pre_first_edge_points,curr_first_edge_points,status,error,cv::Size(21,21),5);
-                
+
                 // 更新跟踪点
                 pre_first_edge_points = curr_first_edge_points;
-                
+
                 // 在图像上绘制跟踪到的点（黄色圆圈）
                 for(int i=0;i<3;i++)
                 {
                     cv::circle( img, pre_first_edge_points[i], 6,cv::Scalar(28,255,255));
                 }
-                
+
                 // 绘制白色矩形框表示无效帧
                 cv::rectangle(img, rect, cv::Scalar(255, 255, 255), 2);
-                
+
                 // 显示处理后的图像
                 cv::imshow ( "Image", img);
                 cv::waitKey(500);
+
+                // 保存无效帧的光流跟踪图像
+                string sorted_debug_dir = path_root + "/img_sorted_boards";
+                string mkdir_cmd = "mkdir -p " + sorted_debug_dir;
+                system(mkdir_cmd.c_str());
+                string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_invalid.png";
+                cv::imwrite(sorted_save_path, img);
+                cout << "已保存无效帧图像到: " << sorted_save_path << endl;
             }
         }
-        
+
         // 保存当前帧作为下一帧的前一帧，用于光流跟踪
         pre_img = img.clone();
-        
+
         // 返回该帧是否被选中用于标定
         return ischoose;
     }
@@ -1366,20 +1339,6 @@ namespace CAMERA
         distParameter_=distParameter.clone();
     }
 
-    /**
-     * @brief 计算相机坐标系下的平面模型参数
-     * 
-     * 该函数用于计算每个标定图像中三个标定板在相机坐标系下的平面方程参数。
-     * 平面方程形式：ax + by + cz + d = 0，其中(a,b,c)是法向量，d是距离参数。
-     * 
-     * 功能：
-     * 1. 对每帧标定图像，计算三个标定板的平面参数
-     * 2. 使用两种方法计算平面参数进行对比验证
-     * 3. 将世界坐标系下的平面转换到相机坐标系
-     * 4. 输出平面参数用于后续的相机-激光雷达标定
-     * 
-     * @param cam_planes_ 输出参数，存储每帧图像中三个标定板的平面参数
-     */
     void Camera::GetPlanesModels(map<int,vector<Eigen::Vector4f>> &cam_planes_)
     {
         // 遍历所有标定图像的角点数据

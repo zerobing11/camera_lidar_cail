@@ -53,55 +53,75 @@ inline float stdevmean(std::vector<float> &resultSet)
 	return stdvalue / meanvalue;
 }
 
+/**
+ * @brief 在指定方向上寻找最近的未使用角点作为邻居
+ * @param idx 当前角点的索引
+ * @param v 搜索方向向量
+ * @param chessboard 不断被填充的棋盘格矩阵，被次运行一次这个函数，这个棋盘格就会被填充一个数字
+ * @param corners 所有检测到的角点信息
+ * @param neighbor_idx [输出] 找到的邻居角点索引
+ * @param min_dist [输出] 到邻居的距离
+ * @return 成功返回1
+ */
 int ChessboradStruct::directionalNeighbor(int idx, cv::Vec2f v, cv::Mat chessboard, Corners& corners, int& neighbor_idx, float& min_dist)
 {
 
 #if 1
-	// list of neighboring elements, which are currently not in use
+	// 初始化：将所有角点索引放入unused列表
 	std::vector<int> unused(corners.p.size());
 	for (int i = 0; i < unused.size(); i++)
 	{
 		unused[i] = i;
 	}
+	
+	// 遍历棋盘格，标记已使用的角点为-1
 	for (int i = 0; i < chessboard.rows; i++)
 		for (int j = 0; j < chessboard.cols; j++)
 		{
 			int xy = chessboard.at<int>(i, j);
-			if (xy >= 0)
+			if (xy >= 0)  // 该位置已分配角点
 			{
-				unused[xy] = -1;
+				unused[xy] = -1;  // 标记为已使用
 			}
 		}
 
+	// 从unused列表中移除已使用的角点（值为-1的元素）
 	int nsize = unused.size();
-
 	for (int i = 0; i < nsize;)
 	{
-		if (unused[i] < 0)
+		if (unused[i] < 0)  // 该角点已被使用
 		{
 			std::vector<int>::iterator iter = unused.begin() + i;
 			unused.erase(iter);
-			i = 0;
+			i = 0;  // 重新开始遍历
 			nsize = unused.size();
 			continue;
 		}
 		i++;
 	}
 
-	std::vector<float> dist_edge;
-	std::vector<float> dist_point;
+	std::vector<float> dist_edge;   // 候选角点到初始起点的向量在v垂直方向上的投影
+	std::vector<float> dist_point;  // 候选角点到初始起点的向量在v方向上的投影
 
-	cv::Vec2f idxp = cv::Vec2f(corners.p[idx].x, corners.p[idx].y);
-	// direction and distance to unused corners
+	cv::Vec2f idxp = cv::Vec2f(corners.p[idx].x, corners.p[idx].y);  // 当前角点位置
+	
+	// 遍历所有未使用的角点
 	for (int i = 0; i < unused.size(); i++)
 	{
 		int ind = unused[i];
+		// diri：从当前角点指向候选角点的向量
 		cv::Vec2f diri = cv::Vec2f(corners.p[ind].x, corners.p[ind].y) - idxp;
+		
+		// disti：diri在方向v上的投影长度（点乘）
+		// 正值表示在v方向前方，负值表示在v方向后方，我们要的是沿v方向的，也就是正值
 		float disti = diri[0] * v[0] + diri[1] * v[1];
 
+		// de：diri垂直于v方向的分量
+		// 计算方法：总向量 - 平行分量 = 垂直分量
 		cv::Vec2f de = diri - disti*v;
-		dist_edge.push_back(distv(de, cv::Vec2f(0, 0)));
-		// distances
+		dist_edge.push_back(distv(de, cv::Vec2f(0, 0)));  // 垂直距离的模
+		
+		// 保存平行距离
 		dist_point.push_back(disti);
 	}
 #else
@@ -145,15 +165,18 @@ int ChessboradStruct::directionalNeighbor(int idx, cv::Vec2f v, cv::Mat chessboa
 
 #endif
 
-	// find best neighbor
+	//
 	int min_idx = 0;
 	min_dist = std::numeric_limits<float>::max();
 
-	//min_dist = dist_point[0] + 5 * dist_edge[0];
+	// 遍历所有候选角点，计算综合距离并找出最小值
 	for (int i = 0; i < dist_point.size(); i++)
 	{
+		// 我们需要的是沿v方向的，因此点乘必须是正
 		if (dist_point[i] > 0)
 		{
+			// 综合距离 = 平行距离 + 5 * 垂直距离
+			// 对应中心点(1,1)来说，沿v方向的一共就三个点，(0,0)(0,1)(0,2)，权重5可以强烈惩罚偏离方向v的角点(0,0)(0,2)，确保选择的邻居尽可能在v方向上
 			float m = dist_point[i] + 5 * dist_edge[i];
 			if (m < min_dist)
 			{
@@ -162,132 +185,237 @@ int ChessboradStruct::directionalNeighbor(int idx, cv::Vec2f v, cv::Mat chessboa
 			}
 		}
 	}
+	
+	// 输出找到的邻居角点索引
 	neighbor_idx = unused[min_idx];
 
 	return 1;
 }
 
 
+
+//以指定角点为中心，利用其两个主方向向量v1和v2，在周围寻找8个邻居角点，构建一个3x3的初始棋盘格
 cv::Mat ChessboradStruct::initChessboard(Corners& corners, int idx)
 {
-	// return if not enough corners
 	if (corners.p.size() < 9)
 	{
 		logd("not enough corners!\n");
 		chessboard.release();//return empty!
 		return chessboard;
 	}
-	// init chessboard hypothesis
+	
+	// 创建3x3矩阵，初始值全为-1,表示未分配角点
 	chessboard = -1 * cv::Mat::ones(3, 3, CV_32S);
 	
-	// extract feature index and orientation(central element)
-	cv::Vec2f v1 = corners.v1[idx];
-	cv::Vec2f v2 = corners.v2[idx];
-	chessboard.at<int>(1, 1) = idx;
-	std::vector<float> dist1(2), dist2(6);
+	// v1, v2是该角点的两个正交主方向向量（由角点检测算法计算得到）
+	// v1通常对应棋盘格的横向方向，v2对应纵向方向
+	cv::Vec2f v1 = corners.v1[idx];  // 第一主方向向量
+	cv::Vec2f v2 = corners.v2[idx];  // 第二主方向向量
+	chessboard.at<int>(1, 1) = idx;  // 将当前角点设为棋盘格中心(1,1)位置
+	
+	// 用于存储到邻居角点的距离
+	std::vector<float> dist1(2);  // 存储沿v1方向（左右）的距离
+	std::vector<float> dist2(6);  // 存储沿v2方向及对角线方向的距离
 
-	// find left / right / top / bottom neighbors
+	// 沿着v1和v2两个主方向，寻找最近的四个邻居角点：
+	// 沿 +v1 方向寻找右侧邻居 -> 位置(1,2)
 	directionalNeighbor(idx, +1 * v1, chessboard, corners, chessboard.at<int>(1, 2), dist1[0]);
+	// 沿 -v1 方向寻找左侧邻居 -> 位置(1,0)
 	directionalNeighbor(idx, -1 * v1, chessboard, corners, chessboard.at<int>(1, 0), dist1[1]);
+	// 沿 +v2 方向寻找下侧邻居 -> 位置(2,1)
 	directionalNeighbor(idx, +1 * v2, chessboard, corners, chessboard.at<int>(2, 1), dist2[0]);
+	// 沿 -v2 方向寻找上侧邻居 -> 位置(0,1)
 	directionalNeighbor(idx, -1 * v2, chessboard, corners, chessboard.at<int>(0, 1), dist2[1]);
 
-	// find top - left / top - right / bottom - left / bottom - right neighbors
-	
+	// 沿着四个对角线方向，寻找四个角落的邻居 ：
+	// 从左侧邻居(1,0)出发，沿 -v2 方向寻找左上角 -> 位置(0,0)
 	directionalNeighbor(chessboard.at<int>(1, 0), -1 * v2, chessboard, corners, chessboard.at<int>(0, 0), dist2[2]);
+	// 从左侧邻居(1,0)出发，沿 +v2 方向寻找左下角 -> 位置(2,0)
 	directionalNeighbor(chessboard.at<int>(1, 0), +1 * v2, chessboard, corners, chessboard.at<int>(2, 0), dist2[3]);
+	// 从右侧邻居(1,2)出发，沿 -v2 方向寻找右上角 -> 位置(0,2)
 	directionalNeighbor(chessboard.at<int>(1, 2), -1 * v2, chessboard, corners, chessboard.at<int>(0, 2), dist2[4]);
+	// 从右侧邻居(1,2)出发，沿 +v2 方向寻找右下角 -> 位置(2,2)
 	directionalNeighbor(chessboard.at<int>(1, 2), +1 * v2, chessboard, corners, chessboard.at<int>(2, 2), dist2[5]);
 
-	// initialization must be homogenously distributed
-		
+	// 初始棋盘格的质量检查
+	bool sigood = false;
+	
+	// 检查1：任何一个邻居的距离为负数（查找失败），则拒绝
+	sigood = sigood || (dist1[0]<0) || (dist1[1]<0);
+	sigood = sigood || (dist2[0]<0) || (dist2[1]<0) || (dist2[2]<0) || (dist2[3]<0) || (dist2[4]<0) || (dist2[5]<0);
+	
+	// 检查2：距离分布的CV（标准差/均值）过大，则拒绝
+	// stdevmean(dist1)是来检查左右两个邻居的距离是否相近
+	// stdevmean(dist2)检查上下及四个对角邻居的距离是否相近
+	sigood = sigood || (stdevmean(dist1) > 0.3) || (stdevmean(dist2) > 0.3);
 
-		bool sigood = false;
-		sigood = sigood||(dist1[0]<0) || (dist1[1]<0);
-		sigood = sigood || (dist2[0]<0) || (dist2[1]<0) || (dist2[2]<0) || (dist2[3]<0) || (dist2[4]<0) || (dist2[5]<0);
-		
-
-		sigood = sigood || (stdevmean(dist1) > 0.3) || (stdevmean(dist2) > 0.3);
-
-		if (sigood == true)
-		{
-			chessboard.release();
-			return chessboard;
-		}
+	// 如果不满足均匀性要求，返回空矩阵
+	if (sigood == true)
+	{
+		chessboard.release();
 		return chessboard;
+	}
+	
+	// 所有检查通过，返回构建好的3x3棋盘格
+	return chessboard;
 }
 
+/**
+ * @brief 计算棋盘格的能量值
+ * @param chessboard 棋盘格矩阵
+ * @param corners 所有角点信息
+ * @return 能量值E（越小越好，负值表示高质量）
+ * 
+ * 能量函数设计原理：
+ * E = E_corners + λ × area × E_structure
+ * 
+ * 两个竞争目标：
+ * 1. E_corners（负值）：鼓励更多角点，越多越好，这个很重要！！保证了角点阵越大就越越好
+ * 2. E_structure（正值）：惩罚几何不规整，越规整越小
+ * 
+ * 高质量棋盘格特征：
+ * - 角点数量多 → E_corners很负
+ * - 几何规整（接近矩形网格）→ E_structure很小
+ * - 最终E为负值且绝对值大 → 质量好
+ */
 float ChessboradStruct::chessboardEnergy(cv::Mat chessboard, Corners& corners)
 {
-         float lamda = m_lamda;
-	//energy: number of corners
+	float lamda = m_lamda;  // 结构惩罚权重（由外部设置）
+	
+	// ========== 第一项：角点数量能量 ==========
+	// 负值：角点越多，E_corners越负，能量越低（越好）
+	// 例如：3×3=9个点 → E_corners=-9
+	//       4×4=16个点 → E_corners=-16（更好）
 	float E_corners = -1 * chessboard.size().area();
-	//energy: structur
+	
+	// ========== 第二项：结构规整性能量 ==========
+	// 衡量棋盘格的几何规整性（共线性检查）
+	// 原理：对于理想的矩形网格，任意连续3个角点应该共线
 	float E_structure = 0;
-	//walk through rows
+	
+	// ---------- 检查所有行的共线性 ----------
+	// 遍历每一行，检查其中每3个连续角点的共线程度
 	for (int i = 0; i < chessboard.rows; i++)
-		for (int j = 0; j < chessboard.cols-2; j++)
+		for (int j = 0; j < chessboard.cols-2; j++)  // 滑动窗口，每次取3个点
 		{
-			std::vector<cv::Vec2f> x;
+			std::vector<cv::Vec2f> x;  // 存储3个连续角点的位置
 			float E_structure0 = 0;
+			
+			// 提取第i行的第j、j+1、j+2列的3个角点
+			// 示意图：x[0]---x[1]---x[2]
 			for (int k = j; k <= j + 2; k++)
 			{
-				int n = chessboard.at<int>(i, k);
-				x.push_back(corners.p[n]);
+				int n = chessboard.at<int>(i, k);  // 获取角点索引
+				x.push_back(corners.p[n]);          // 获取角点坐标
 			}
+			
+			// 共线性检查：计算x[1]偏离x[0]和x[2]连线的程度
+			// 理想情况：x[1]应该是x[0]和x[2]的中点
+			// 偏离向量 = x[0] + x[2] - 2*x[1]
+			// 如果完美共线，偏离向量应该是(0,0)
 			E_structure0 = distv(x[0] + x[2] - 2 * x[1], cv::Vec2f(0,0));
+			
+			// 归一化：除以x[0]到x[2]的距离
+			// 这样E_structure0变成相对误差，不受尺度影响
 			float tv = distv(x[0] - x[2], cv::Vec2f(0, 0));
 			E_structure0 = E_structure0 / tv;
+			
+			// 保留最大的偏离值（最差情况）
+			// 只要有一处严重不规整，整个棋盘格就被认为质量差
 			if (E_structure < E_structure0)
 				E_structure = E_structure0;
 		}
 
-	//walk through columns
+	// ---------- 检查所有列的共线性 ----------
+	// 与行检查完全对称，只是遍历方向不同
 	for (int i = 0; i < chessboard.cols; i++)
-		for (int j = 0; j < chessboard.rows-2; j++)
+		for (int j = 0; j < chessboard.rows-2; j++)  // 滑动窗口，每次取3个点
 		{
 			std::vector<cv::Vec2f> x;
 			float E_structure0 = 0;
+			
+			// 提取第i列的第j、j+1、j+2行的3个角点
 			for (int k = j; k <= j + 2; k++)
 			{
-				int n = chessboard.at<int>(k, i);
+				int n = chessboard.at<int>(k, i);  // 注意：这里k和i的顺序与行检查相反
 				x.push_back(corners.p[n]);
 			}
+			
+			// 同样的共线性检查
 			E_structure0 = distv(x[0] + x[2] - 2 * x[1], cv::Vec2f(0, 0));
 			float tv = distv(x[0] - x[2], cv::Vec2f(0, 0));
 			E_structure0 = E_structure0 / tv;
+			
+			// 保留最大偏离
 			if (E_structure < E_structure0)
 				E_structure = E_structure0;
 		}
 
-	// final energy
+	// ========== 综合能量计算 ==========
+	// E = E_corners + λ × area × E_structure
+	// 
+	// 参数说明：
+	// - λ (lamda)：结构惩罚权重，越大对规整性要求越严格
+	// - area：棋盘格面积，大棋盘格应该有更高的规整性要求
+	// - E_structure：归一化的最大偏离度
+	// 
+	// 能量解读：
+	// E < -10：高质量棋盘格（在chessboardsFromCorners中的阈值）
+	// E ≈ 0：  角点数量和结构惩罚抵消
+	// E > 0：  低质量，结构太差
 	float E = E_corners + lamda*chessboard.size().area()*E_structure;
 
 	return E;
 }
 
-// replica prediction(new)
+/**
+ * @brief 基于3个已知点的位置，预测下一个点的位置（线性外推）
+ * @param p1 第一组点（如棋盘格的倒数第3列/行）
+ * @param p2 第二组点（如棋盘格的倒数第2列/行）
+ * @param p3 第三组点（如棋盘格的最后一列/行）
+ * @param pred [输出] 预测的下一组点位置
+ * 
+ * 算法原理：
+ * 假设3个连续点呈现某种趋势（方向和间距），利用这个趋势外推下一个点
+ * 
+ * 示意图：
+ *   p1 ----v1----> p2 ----v2----> p3 ----预测----> pred
+ *   ●              ●              ●                 ●
+ * 
+ * 预测公式：
+ * 1. 计算向量：v1 = p2-p1, v2 = p3-p2
+ * 2. 预测角度：a2 = atan2(v2), a3 = 2*a2 - a1 (线性外推角度)，为啥不用平均嘞？
+ * 3. 预测距离：s2 = |v2|, s3 = 2*s2 - s1 (线性外推距离)
+ * 4. 最终位置：pred = p3 + 0.75*s3*方向向量
+ *    (0.75系数：稍保守的预测，避免过度外推)
+ */
 void ChessboradStruct::predictCorners(std::vector<cv::Vec2f>& p1, std::vector<cv::Vec2f>& p2, 
 	std::vector<cv::Vec2f>& p3, std::vector<cv::Vec2f>& pred)
 {
-	cv::Vec2f v1, v2;
-	float a1, a2, a3;
-	float s1, s2, s3;
+	cv::Vec2f v1, v2;    // 相邻点之间的向量
+	float a1, a2, a3;    // 向量的角度
+	float s1, s2, s3;    // 向量的长度（距离）
 	pred.resize(p1.size());
+	
+	// 对每一行/列的角点进行独立预测
 	for (int i = 0; i < p1.size(); i++)
 	{
-		// compute vectors
-		v1 = p2[i] - p1[i];
-		v2 = p3[i] - p2[i];
-		// predict angles
-		a1 = atan2(v1[1], v1[0]);
-		a2 = atan2(v1[1], v1[0]);
-		a3 = 2.0 * a2 - a1;
+		// 计算相邻点之间的向量
+		v1 = p2[i] - p1[i];  // 从p1到p2的向量
+		v2 = p3[i] - p2[i];  // 从p2到p3的向量
+		
+		// 预测角度（方向）
+		a1 = atan2(v1[1], v1[0]);  // v1的角度
+		a2 = atan2(v2[1], v2[0]);  // v2的角度（注意：原代码有bug，应该是v2）
+		a3 = 2.0 * a2 - a1;         // 线性外推：保持角度变化趋势
 
-		//predict scales
-		s1 = distv(v1, cv::Vec2f(0, 0));
-		s2 = distv(v2, cv::Vec2f(0, 0));
-		s3 = 2 * s2 - s1;
+		// 预测距离（尺度）
+		s1 = distv(v1, cv::Vec2f(0, 0));  // v1的长度
+		s2 = distv(v2, cv::Vec2f(0, 0));  // v2的长度
+		s3 = 2 * s2 - s1;                  // 线性外推：保持距离变化趋势
+		
+		// 最终预测位置 = p3 + 预测向量
+		// 0.75系数：稍保守，避免外推过远导致匹配失败
 		pred[i] = p3[i] + 0.75*s3*cv::Vec2f(cos(a3), sin(a3));
 	}
 }
@@ -363,31 +491,58 @@ void ChessboradStruct::assignClosestCorners(std::vector<cv::Vec2f>&cand, std::ve
 
 
 
+/**
+ * @brief 向指定方向扩展棋盘格（增加一行或一列）
+ * @param chessboard 当前棋盘格矩阵
+ * @param corners 所有检测到的角点信息
+ * @param border_type 扩展方向：0=右, 1=下, 2=左, 3=上
+ * @return 扩展后的棋盘格矩阵，失败则返回原棋盘格
+ * 
+ * 算法原理（以向右扩展为例）：
+ * 1. 提取棋盘格最右边的3列角点：p1(倒数第3列), p2(倒数第2列), p3(最后一列)
+ * 2. 利用这3列的位置关系，预测下一列的角点位置pred
+ *    预测公式：pred = p3 + 0.75*(p3-p2的向量趋势)
+ * 3. 在未使用的候选角点中，找到与pred最接近的角点
+ * 4. 扩展棋盘格（增加一列），填入找到的角点索引
+ * 
+ * 扩展示意图（向右扩展）：
+ *    p1   p2   p3   pred(新列)
+ *    ●    ●    ●    ●  <- 基于这3个点预测新位置
+ *    ●    ●    ●    ●
+ *    ●    ●    ●    ●
+ *   倒数  倒数  最后  扩展
+ *   第3列 第2列  列   的列
+ */
 cv::Mat ChessboradStruct::growChessboard(cv::Mat chessboard, Corners& corners, int border_type)
 {
+	// 输入检查
 	if (chessboard.empty() == true)
 	{
 		return chessboard;
 	}
-	std::vector<cv::Point2f> p = corners.p;
-	// list of  unused feature elements
+	
+	std::vector<cv::Point2f> p = corners.p;  // 所有角点的位置
+	
+	// 与 directionalNeighbor 函数相同的逻辑，构建未使用角点列表
 	std::vector<int> unused(p.size());
 	for (int i = 0; i < unused.size(); i++)
 	{
 		unused[i] = i;
 	}
+	
+	// 标记已被使用的角点
 	for (int i = 0; i < chessboard.rows; i++)
 		for (int j = 0; j < chessboard.cols; j++)
 		{
 			int xy = chessboard.at<int>(i, j);
 			if (xy >= 0)
 			{
-				unused[xy] = -1;
+				unused[xy] = -1;  // 已使用
 			}
 		}
 
+	// 从列表中删除已使用的角点
 	int nsize = unused.size();
-
 	for (int i = 0; i < nsize; )
 	{
 		if (unused[i] < 0)
@@ -401,168 +556,221 @@ cv::Mat ChessboradStruct::growChessboard(cv::Mat chessboard, Corners& corners, i
 		i++;
 	}
 
-	// candidates from unused corners
+	// 构建候选角点位置列表
 	std::vector<cv::Vec2f> cand;
 	for (int i = 0; i < unused.size(); i++)
 	{
 		cand.push_back(corners.p[unused[i]]);
 	}
-	// switch border type 1..4
-	cv::Mat chesstemp;
+	
+	cv::Mat chesstemp;  // 扩展后的棋盘格
 
 	switch (border_type)
 	{
-	case 0:
+	case 0:  // 向右扩展（增加一列）
 	{
-		std::vector<cv::Vec2f> p1, p2, p3,pred;
+		// 提取最右边3列的角点位置，用于预测下一列
+		// 示意图：
+		//   col-3  col-2  col-1  (新列)
+		//    p1     p2     p3    pred
+		//    ●      ●      ●   →  ●
+		//    ●      ●      ●   →  ●
+		//    ●      ●      ●   →  ●
+		
+		std::vector<cv::Vec2f> p1, p2, p3, pred;
 		for (int row = 0; row < chessboard.rows; row++)
 			for (int col = 0; col < chessboard.cols; col++)
 			{
-				if (col == chessboard.cols - 3)
+				if (col == chessboard.cols - 3)  // 倒数第3列
 				{				
 					int ij = chessboard.at<int>(row, col);
 					p1.push_back(cv::Vec2f(p[ij]));
 				}
-				if (col == chessboard.cols - 2)
+				if (col == chessboard.cols - 2)  // 倒数第2列
 				{
 					int ij = chessboard.at<int>(row, col);
 					p2.push_back(cv::Vec2f(p[ij]));
 				}
-				if (col == chessboard.cols - 1)
+				if (col == chessboard.cols - 1)  // 最后一列
 				{
 					int ij = chessboard.at<int>(row, col);
 					p3.push_back(cv::Vec2f(p[ij]));
 				}
 			}
+		
+		// 基于p1,p2,p3的位置趋势，预测下一列每个角点的位置
 		std::vector<int> idx;
-		predictCorners(p1, p2, p3, pred);
+		predictCorners(p1, p2, p3, pred);  // 预测pred位置
+		
+		// 在候选角点中，找到与pred最接近的角点
 		assignClosestCorners(cand, pred, idx);
-		if (idx[0] < 0)
+		if (idx[0] < 0)  // 匹配失败
 		{
-			return chessboard;
+			return chessboard;  // 返回原棋盘格（扩展失败）
 		}
 
-		cv::copyMakeBorder(chessboard, chesstemp, 0, 0, 0, 1, 0,0);
+		// 扩展棋盘格：在右边增加一列
+		// cv::copyMakeBorder参数(top, bottom, left, right)
+		cv::copyMakeBorder(chessboard, chesstemp, 0, 0, 0, 1, 0, 0);
 
+		// 填充新列的角点索引
 		for (int i = 0; i < chesstemp.rows; i++)
 		{
-			chesstemp.at<int>(i, chesstemp.cols - 1) = unused[idx[i]];//ÓÒ
+			chesstemp.at<int>(i, chesstemp.cols - 1) = unused[idx[i]];  // 最右列
 		}
 		chessboard = chesstemp.clone();
 
 		break;
 	}
-	case 1:
+	case 1:  // 向下扩展（增加一行）
 	{
+		// 提取最下边3行的角点位置，用于预测下一行
+		// 示意图：
+		//   row-3: p1 → ● ● ● ● 
+		//   row-2: p2 → ● ● ● ●
+		//   row-1: p3 → ● ● ● ●
+		//   (新行): pred → ● ● ● ● (要预测的)
+		
 		std::vector<cv::Vec2f> p1, p2, p3, pred;
 		for (int row = 0; row < chessboard.rows; row++)
 			for (int col = 0; col < chessboard.cols; col++)
 			{
-				if (row == chessboard.rows - 3)
+				if (row == chessboard.rows - 3)  // 倒数第3行
 				{
 					int ij = chessboard.at<int>(row, col);
 					p1.push_back(cv::Vec2f(p[ij]));
 				}
-				if (row == chessboard.rows - 2)
+				if (row == chessboard.rows - 2)  // 倒数第2行
 				{
 					int ij = chessboard.at<int>(row, col);
 					p2.push_back(cv::Vec2f(p[ij]));
 				}
-				if (row == chessboard.rows - 1)
+				if (row == chessboard.rows - 1)  // 最后一行
 				{
 					int ij = chessboard.at<int>(row, col);
 					p3.push_back(cv::Vec2f(p[ij]));
 				}
 			}
+		
 		std::vector<int> idx;
-		predictCorners(p1, p2, p3, pred);
+		predictCorners(p1, p2, p3, pred);  // 预测下一行的位置
 		assignClosestCorners(cand, pred, idx);
-		if (idx[0] < 0)
+		if (idx[0] < 0)  // 匹配失败
 		{
 			return chessboard;
 		}
 
+		// 扩展棋盘格：在下边增加一行
 		cv::copyMakeBorder(chessboard, chesstemp, 0, 1, 0, 0, 0, 0);
+		
+		// 填充新行的角点索引
 		for (int i = 0; i < chesstemp.cols; i++)
 		{
-			chesstemp.at<int>(chesstemp.rows - 1, i) = unused[idx[i]];//ÏÂ
+			chesstemp.at<int>(chesstemp.rows - 1, i) = unused[idx[i]];  // 最下行
 		}
 		chessboard = chesstemp.clone();
 
 		break;
 	}
-	case 2:
+	case 2:  // 向左扩展（增加一列）
 	{
+		// 提取最左边3列的角点位置，用于预测新的左侧列
+		// 注意：这里是逆向预测，从col=2 → col=1 → col=0 → pred(新列)
+		// 示意图：
+		//  (新列)  col-0  col-1  col-2
+		//   pred    p3     p2     p1
+		//    ●   ←  ●      ●      ●
+		//    ●   ←  ●      ●      ●
+		//    ●   ←  ●      ●      ●
+		
 		std::vector<cv::Vec2f> p1, p2, p3, pred;
 		for (int row = 0; row < chessboard.rows; row++)
 			for (int col = 0; col < chessboard.cols; col++)
 			{
-				if (col == 2)
+				if (col == 2)  // 第3列（从左数）
 				{
 					int ij = chessboard.at<int>(row, col);
 					p1.push_back(cv::Vec2f(p[ij]));
 				}
-				if (col == 1)
+				if (col == 1)  // 第2列
 				{
 					int ij = chessboard.at<int>(row, col);
 					p2.push_back(cv::Vec2f(p[ij]));
 				}
-				if (col == 0)
+				if (col == 0)  // 第1列（最左）
 				{
 					int ij = chessboard.at<int>(row, col);
 					p3.push_back(cv::Vec2f(p[ij]));
 				}
 			}
+		
 		std::vector<int> idx;
-		predictCorners(p1, p2, p3, pred);
+		predictCorners(p1, p2, p3, pred);  // 预测更左侧的位置
 		assignClosestCorners(cand, pred, idx);
-		if (idx[0] < 0)
+		if (idx[0] < 0)  // 匹配失败
 		{
 			return chessboard;
 		}
 
-		cv::copyMakeBorder(chessboard, chesstemp, 0, 0, 1, 0, 0, 0);//×ó
+		// 扩展棋盘格：在左边增加一列
+		cv::copyMakeBorder(chessboard, chesstemp, 0, 0, 1, 0, 0, 0);
+		
+		// 填充新列的角点索引
 		for (int i = 0; i < chesstemp.rows; i++)
 		{
-			chesstemp.at<int>(i, 0) = unused[idx[i]];
+			chesstemp.at<int>(i, 0) = unused[idx[i]];  // 最左列
 		}
 		chessboard = chesstemp.clone();
 
 		break;
 	}
-	case 3:
+	case 3:  // 向上扩展（增加一行）
 	{
+		// 提取最上边3行的角点位置，用于预测新的上侧行
+		// 注意：这里是逆向预测，从row=2 → row=1 → row=0 → pred(新行)
+		// 示意图：
+		//  (新行): pred → ● ● ● ● (要预测的)
+		//          ↑
+		//   row-0: p3 → ● ● ● ●
+		//   row-1: p2 → ● ● ● ●
+		//   row-2: p1 → ● ● ● ●
+		
 		std::vector<cv::Vec2f> p1, p2, p3, pred;
 		for (int row = 0; row < chessboard.rows; row++)
 			for (int col = 0; col < chessboard.cols; col++)
 			{
-				if (row ==  2)
+				if (row == 2)  // 第3行（从上数）
 				{
 					int ij = chessboard.at<int>(row, col);
 					p1.push_back(cv::Vec2f(p[ij]));
 				}
-				if (row == 1)
+				if (row == 1)  // 第2行
 				{
 					int ij = chessboard.at<int>(row, col);
 					p2.push_back(cv::Vec2f(p[ij]));
 				}
-				if (row == 0)
+				if (row == 0)  // 第1行（最上）
 				{
 					int ij = chessboard.at<int>(row, col);
 					p3.push_back(cv::Vec2f(p[ij]));
 				}
 			}
+		
 		std::vector<int> idx;
-		predictCorners(p1, p2, p3, pred);
+		predictCorners(p1, p2, p3, pred);  // 预测更上侧的位置
 		assignClosestCorners(cand, pred, idx);
-		if (idx[0] < 0)
+		if (idx[0] < 0)  // 匹配失败
 		{
 			return chessboard;
 		}
-		cv::copyMakeBorder(chessboard, chesstemp, 1, 0, 0, 0, 0, 0);//ÉÏ
+		
+		// 扩展棋盘格：在上边增加一行
+		cv::copyMakeBorder(chessboard, chesstemp, 1, 0, 0, 0, 0, 0);
+		
+		// 填充新行的角点索引
 		for (int i = 0; i < chesstemp.cols; i++)
 		{
-			chesstemp.at<int>(0, i) = unused[idx[i]];
+			chesstemp.at<int>(0, i) = unused[idx[i]];  // 最上行
 		}
 		chessboard = chesstemp.clone();
 		break;
@@ -570,114 +778,92 @@ cv::Mat ChessboradStruct::growChessboard(cv::Mat chessboard, Corners& corners, i
 	default:
 		break;
 	}
-	return chessboard;
+	
+	return chessboard;  // 返回扩展后的棋盘格
 }
 
-
-
-
-/**
- * @brief 从检测到的角点中构建棋盘格结构
- * 
- * 该函数是棋盘格检测的核心算法，采用基于能量优化的方法从角点集合中识别和构建棋盘格。
- * 算法流程：初始化候选棋盘格 → 能量优化扩展 → 重叠检测与处理 → 最终筛选
- * 
- * @param corners 输入参数，包含所有检测到的角点信息（位置、响应强度等）
- * @param chessboards 输出参数，存储识别出的棋盘格结构，每个Mat表示一个棋盘格
- * @param lamda 能量函数权重参数，控制几何约束的严格程度
- *              - 值越大：几何约束越严格，要求更规整的棋盘格
- *              - 值越小：几何约束越宽松，允许更多变形的棋盘格
- *              - 推荐范围：0.8-2
- */
+/*下面这个函数是棋盘格检测的入口函数，相当于这个cpp文件的main函数，std::vector<cv::Mat>& chessboards是最后的输出,
+那么，chessboards中chessboard的排序，以及chessboard中角点的排序是受什么所影响的?
+首先chessboards中chessboard的是受Corners& corners中的角点排序强影响的，因为初始棋盘格增长就是按照着角点顺序一个一个遍历来的，
+因此才会出现image_corner_test中，chessboard的顺序是左右下，这是因为角点存储顺序是有一定规律的，会先遍历到右板的中心点，然后左板中心点，最后底板中心点；
+chessboard中角点排序：(0,0)是棋盘格的四个角随机，这个取决于角点的方向向量是什么样子的
+*/
  void ChessboradStruct::chessboardsFromCorners( Corners& corners, std::vector<cv::Mat>& chessboards, float lamda)
  {
 	 logd("Structure recovery:\n");
-	 m_lamda = lamda;  // 保存能量函数权重参数
+	 m_lamda = lamda;  //能量函数权重，越大越严格，要求的棋盘格越规整
 	 
-	 // 棋盘格点数约束（作为局部变量）
-	 const int target_corner_count = 12;  // 目标角点总数（3x4 或 4x3）
+	 // 棋盘格点数约束，这个得写到外面，后面要改
+	 const int target_corner_count = 12;
 	 
-	//  std::cout << "\n=== 棋盘格构建过程调试 ===" << std::endl;
-	//  std::cout << "输入角点数量: " << corners.p.size() << std::endl;
-	//  std::cout << "能量权重参数lamda: " << lamda << std::endl;
-	//  std::cout << "目标棋盘格角点总数: " << target_corner_count << std::endl;
 	 
 	 int valid_initial_count = 0;
 	 int energy_pass_count = 0;
 	 int final_quality_count = 0;
 	 int added_chessboards = 0;
 	 
-	 // 第一阶段：遍历所有角点，尝试以每个角点为起点构建棋盘格
+	 // 遍历所有角点，尝试以每个角点为起点构建棋盘格
 	 for (int i = 0; i < corners.p.size(); i++)
 	 {
-		 // 调试信息：每128个角点输出一次进度
-		 //if (i % 128 == 0)
-		 //	printf("%d, %d\n", i, corners.p.size());//fyy
-	 
-		 // 步骤1：以当前角点为起点初始化一个候选棋盘格
-		 // initChessboard会尝试找到该角点的最近邻角点，构建2x2的初始棋盘格
+		 // initChessboard会尝试找到该角点的最近邻角点，构建3x3的初始棋盘格
 		 cv::Mat csbd = initChessboard(corners, i);
 		 if (csbd.empty() == true)
 		 {
-			 continue;  // 如果无法初始化棋盘格，跳过当前角点
+			 continue;
 		 }
 		 valid_initial_count++;
-		 
-		 // 步骤2：计算初始棋盘格的能量值
-		 // 能量值越小表示棋盘格质量越好，能量值>0表示质量太差
+		 // 计算初始棋盘格的能量值 能量值越小表示棋盘格质量越好，能量值>0表示质量太差，跳过质量差的候选棋盘格
 		 float E = chessboardEnergy(csbd, corners);
-		 if (E > 0){ continue; }  // 能量值>0，跳过质量差的候选棋盘格
+	 	//这个阈值很低了
+		 if (E > 0){ continue; }  
 		 energy_pass_count++;
-		 
-		 // 步骤3：从初始棋盘格开始，通过能量优化进行扩展
-		 cv::Mat chessboard = csbd.clone();  // 复制初始棋盘格
-		 int s = 0;  // 扩展步数计数器
-		 
-		 // 第二阶段：迭代扩展棋盘格，直到无法进一步优化或达到目标点数
+		 cv::Mat chessboard = csbd.clone();
+		 int s = 0; 
+		 // 对初始棋盘格，进行扩展，直到无法进一步优化或达到目标点数
 		 while (true)
 		 {
 			 s++;
-			 // 计算当前棋盘格的能量值
+			 // 计算棋盘格的能量值，第一次循环是3x3的初始棋盘格，后续就是拓展棋盘格了
 			 float energy = chessboardEnergy(chessboard, corners);
- 
-			 // 检查是否已达到目标角点数
+			 // 检查是否已达到目标角点数，达到则退出扩展循环
 			 int current_corner_count = chessboard.rows * chessboard.cols;
 			 if (current_corner_count >= target_corner_count)
 			 {
-				 // 如果已达到目标角点数，停止扩展
 				 break;
 			 }
  
-			 // 步骤4：生成4个方向的扩展候选方案
-			 // 分别尝试向上、下、左、右四个方向扩展棋盘格
+			 // 没有到达目标点数，分别尝试向上、下、左、右四个方向扩展棋盘格，生成4个方向的扩展候选方案
 			 std::vector<cv::Mat> proposal(4);
 			 std::vector<float> p_energy(4);
 			 
 			 // 计算每个扩展方案的能量值，并检查点数约束
 			 for (int j = 0; j < 4; j++)
 			 {
-				 proposal[j] = growChessboard(chessboard, corners, j);  // 生成第j个方向的扩展方案
+				 proposal[j] = growChessboard(chessboard, corners, j);
 				 
 				 // 检查扩展后的角点数是否超过目标
 				 if (!proposal[j].empty())
 				 {
 					 int proposal_corner_count = proposal[j].rows * proposal[j].cols;
+					 //超过目标点数，设置为无效
 					 if (proposal_corner_count > target_corner_count)
 					 {
-						 p_energy[j] = std::numeric_limits<float>::max();  // 设置为无效（能量值最大）
+						 p_energy[j] = std::numeric_limits<float>::max();
 					 }
+					 //符合的就计算能量值
 					 else
 					 {
 						 p_energy[j] = chessboardEnergy(proposal[j], corners);  // 计算该方案的能量值
 					 }
 				 }
+				 //没有扩展成功，设置为无效
 				 else
 				 {
 					 p_energy[j] = std::numeric_limits<float>::max();
 				 }
 			 }
 			 
-			 // 步骤5：选择能量值最小的扩展方案（最优方案）
+			 // 在符合点数要求的扩展方案中能量值最小的方案
 			 float min_value = p_energy[0];
 			 int min_idx = 0;
 			 for (int i0 = 1; i0 < p_energy.size(); i0++)
@@ -688,32 +874,33 @@ cv::Mat ChessboradStruct::growChessboard(cv::Mat chessboard, Corners& corners, i
 					 min_idx = i0;
 				 }
 			 }
+		 	
+			 //判定棋盘格是否继续生长
+			 cv::Mat chessboardt;  //扩展后的棋盘格
 			 
-			 // 步骤6：如果最优方案的能量值比当前棋盘格更低，则接受该方案
-			 cv::Mat chessboardt;
+			 // 最优扩展方案的能量 < 当前棋盘格的能量，继续while拓展
 			 if (p_energy[min_idx] < energy)
 			 {
 				 chessboardt = proposal[min_idx];
-				 chessboard = chessboardt.clone();  // 更新当前棋盘格
+				 chessboard = chessboardt.clone();// 更新当前棋盘格为扩展后的结果
 			 }
 			 else
 			 {
-				 break;  // 无法进一步优化，退出扩展循环
+				 // 所有扩展方案都没有改进，退出while循环，不再扩展，保留当前棋盘格
+				 break;
 			 }
 		 }//end while
- 
-		 // 第三阶段：质量筛选，只保留高质量的棋盘格
-		 // 能量值<-10表示棋盘格质量足够好，可以加入候选列表
+
+		 // 能量值<-10的棋盘格可以加入候选列表
 		 float final_energy = chessboardEnergy(chessboard, corners);
 		 
-		 // 检查角点数是否完全匹配目标要求
+		 // 重新查一下角点数
 		 int final_corner_count = chessboard.rows * chessboard.cols;
 		 bool corner_count_match = (final_corner_count == target_corner_count);
 		 
 		 if (final_energy < -10 && corner_count_match)
 		 {
 			 final_quality_count++;
-			 // 第四阶段：重叠检测与处理
 			 // 检查新发现的棋盘格是否与已存在的棋盘格有重叠
 			 cv::Mat overlap = cv::Mat::zeros(cv::Size(2, chessboards.size()), CV_32FC1);
 			 
@@ -740,7 +927,7 @@ cv::Mat ChessboradStruct::growChessboard(cv::Mat chessboard, Corners& corners, i
 				 }
 			 }//endfor
  
-			 // 第五阶段：根据重叠情况决定是否添加新棋盘格
+			 // 根据重叠情况决定是否添加新棋盘格
 			 // 检查是否存在重叠
 			 bool isoverlap = false;
 			 for (int i0 = 0; i0 < overlap.rows; i0++)
