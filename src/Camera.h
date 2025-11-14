@@ -172,6 +172,10 @@ namespace CAMERA
             cv::Size image_size,cornersize; 
             cv::Mat img,pre_img,org_img;
             vector<int> camera_cal_frame;//参与内参标定的图像序列号
+            
+            //关键帧选择参数
+            int keyframe_interval;     // 关键帧间隔（每N帧选一帧）
+            int last_keyframe_id;      // 上一个关键帧的ID
 
             //角点信息
             bool isMouseCallback;
@@ -210,8 +214,9 @@ namespace CAMERA
             Camera(int height,int width,string path,double corner_thresh,double chess_thresh);//传入棋盘格尺寸、标定数据根目录和阈值参数
 
             //
-            bool choose_vaild_frame();//确定有效帧
+            void choose_vaild_frame();//提取并组织棋盘格角点信息
             void sort_boards();//标定板排序
+            bool is_keyframe();//判断当前帧是否应该作为关键帧
 
             //sort corners
             float euclideanDist(cv::Point2f& a, cv::Point2f& b);
@@ -276,6 +281,10 @@ namespace CAMERA
         isMouseCallback = true;
 
         distParameter = Mat(1,5,CV_64FC1,Scalar::all(0));
+        
+        // 初始化关键帧选择参数
+        keyframe_interval = 5;   // 默认每5帧选一个关键帧
+        last_keyframe_id = -1;   // 初始化为-1，表示还没有关键帧
     }
 
     Camera::Camera(int height,int width,string path,double corner_thresh,double chess_thresh)
@@ -312,6 +321,10 @@ namespace CAMERA
         isMouseCallback = true;
 
         distParameter = Mat(1,5,CV_64FC1,Scalar::all(0));
+        
+        // 初始化关键帧选择参数
+        keyframe_interval = 5;   // 默认每5帧选一个关键帧
+        last_keyframe_id = -1;   // 初始化为-1，表示还没有关键帧
     }
 
     bool Camera::Ensure_ValidFrame(std::vector<cv::Mat> chessboards)
@@ -595,79 +608,100 @@ namespace CAMERA
         }
     }
 
-    bool Camera::choose_vaild_frame()
+    /*
+     * 功能：判断当前帧是否应该作为关键帧
+     * 
+     * 关键帧选择策略：
+     * 1. 第一帧（检测成功的第一帧）必定是关键帧
+     * 2. 与上一个关键帧的间隔 >= keyframe_interval 时，选为关键帧
+     * 
+     * 返回值：
+     * - true：当前帧应该作为关键帧（进行完整处理和标定）
+     * - false：当前帧为非关键帧（只做光流追踪，保持时序连续性）
+     */
+    bool Camera::is_keyframe()
     {
-        //遍历某个标定版
-        int max_x = -100000;
-        int min_x = 100000;
-        int max_y = -100000;
-        int min_y = 100000;
-        //遍历当前帧，检测棋盘格并标注
+        // 第一个检测成功的帧必定是关键帧
+        if(last_keyframe_id == -1)
+        {
+            return true;
+        }
+        
+        // 判断与上一个关键帧的间隔是否足够
+        int frame_gap = img_indx - last_keyframe_id;
+        if(frame_gap >= keyframe_interval)
+        {
+            return true;
+        }
+        
+        return false;
+    }
+   
+     //功能：遍历当前帧检测到的3个棋盘格，提取并组织角点信息
+    void Camera::choose_vaild_frame()
+    {
+        // ========== 遍历3个标定板，提取角点信息 ==========
         for (int indx_bd = 0; indx_bd < 3; indx_bd++)
         {
-            cur_boards[indx_bd].corners.clear();//角点清零
-            cur_boards[indx_bd].orderd_corners.clear();
-            cur_boards[indx_bd].edge_indx.clear();
-            cur_boards[indx_bd].ordered_edge_indx.clear();
-            //更新标定板中的corner centroid、 edge_indx和centroid
-            Point2f acc(0,0);
-            //遍历棋盘格每个角点，对不同标定板的角点用不同颜色标注，并记录顶点序号
+            cur_boards[indx_bd].corners.clear();           // 角点坐标列表
+            cur_boards[indx_bd].orderd_corners.clear();    // 有序角点列表
+            cur_boards[indx_bd].edge_indx.clear();         // 边缘角点索引
+            cur_boards[indx_bd].ordered_edge_indx.clear(); // 有序边缘角点索引
+            
+            // 用于累加所有角点坐标，最后计算形心
+            Point2f acc(0, 0);
+            
+            // ========== 遍历当前标定板的每个角点 ==========
             for (int i = 0; i < chessboards[indx_bd].rows; i++)
             {
                 for (int j = 0; j < chessboards[indx_bd].cols; j++)
                 {
-                    //获取角点序号、、、、
                     int d = chessboards[indx_bd].at<int>(i, j);
-                    //更新标定板范围
                     cv::Point2f point(corners_s.p[d].x, corners_s.p[d].y);
-                    if(max_x<(int)point.x)
-                        max_x = point.x;
-                    if(min_x>(int)point.x)
-                        min_x = point.x;
-                    if(max_y<(int)point.y)
-                        max_y = point.y;
-                    if(min_y>(int)point.y)
-                        min_y = point.y;
-                    cur_boards[indx_bd].corners.push_back(point);
-                    //计算所有角点坐标和
-                    acc  = acc + point;
-                    //不同标定板角点标注
-                    if(indx_bd==0)
-                        cv::circle( img, point, 1,Scalar(255, 0, 0) ,cv::FILLED, cv::LINE_AA, 0 );
-                    if(indx_bd==1)
-                        cv::circle( img, point, 1,Scalar(0, 255, 0) ,cv::FILLED, cv::LINE_AA, 0 );
-                    if(indx_bd==2)
-                        cv::circle( img, point, 1,Scalar(0, 0, 255) ,cv::FILLED, cv::LINE_AA, 0 );
                     
-                    //记录顶点序号
-                    if((i==0)&&(j==0))
-                        cur_boards[indx_bd].edge_indx.push_back(j+i*chessboards[indx_bd].cols);
-                    if((i==0)&&(j==chessboards[indx_bd].cols-1))
-                        cur_boards[indx_bd].edge_indx.push_back(j+i*chessboards[indx_bd].cols);
-                    if((i==chessboards[indx_bd].rows-1)&&(j==0))
-                        cur_boards[indx_bd].edge_indx.push_back(j+i*chessboards[indx_bd].cols);
-                    if((i==chessboards[indx_bd].rows-1)&&(j==chessboards[indx_bd].cols-1))
-                        cur_boards[indx_bd].edge_indx.push_back(j+i*chessboards[indx_bd].cols);
+                    // 将角点坐标存入当前标定板的角点列表
+                    cur_boards[indx_bd].corners.push_back(point);
+                    
+                    // 累加角点坐标，用于后续计算形心
+                    acc = acc + point;
+                    
+                    // 在图像上用不同颜色标注不同标定板的角点
+                    if(indx_bd == 0)
+                        cv::circle(img, point, 1, Scalar(255, 0, 0), cv::FILLED, cv::LINE_AA, 0);
+                    if(indx_bd == 1)
+                        cv::circle(img, point, 1, Scalar(0, 255, 0), cv::FILLED, cv::LINE_AA, 0);
+                    if(indx_bd == 2)
+                        cv::circle(img, point, 1, Scalar(0, 0, 255), cv::FILLED, cv::LINE_AA, 0);
+                    
+                    // ========== 识别并记录四个边缘角点的索引 ==========
+                    // 边缘角点：棋盘格的四个顶点（左上、右上、左下、右下）
+                    if((i == 0) && (j == 0))
+                        cur_boards[indx_bd].edge_indx.push_back(j + i * chessboards[indx_bd].cols);
+                    if((i == 0) && (j == chessboards[indx_bd].cols - 1))  // 右上角
+                        cur_boards[indx_bd].edge_indx.push_back(j + i * chessboards[indx_bd].cols);
+                    if((i == chessboards[indx_bd].rows - 1) && (j == 0))  // 左下角
+                        cur_boards[indx_bd].edge_indx.push_back(j + i * chessboards[indx_bd].cols);
+                    if((i == chessboards[indx_bd].rows - 1) && (j == chessboards[indx_bd].cols - 1))  // 右下角
+                        cur_boards[indx_bd].edge_indx.push_back(j + i * chessboards[indx_bd].cols);
                 }
             }  
 
-            //标注标定板顶点
-            for(int i=0;i<4;i++)
+            // ========== 用更大的圆圈高亮标注四个边缘角点 ==========
+            for(int i = 0; i < 4; i++)
             {
                 Point2f tmp = cur_boards[indx_bd].corners[cur_boards[indx_bd].edge_indx[i]];
-                //cout<<"  Edge Point = "<<tmp.x<<" "<<tmp.y<<endl;
-                if(indx_bd==0)
-                    cv::circle( img, tmp, 3,Scalar(255, 0, 0) ,cv::FILLED, cv::LINE_AA, 0 );//蓝色
-                if(indx_bd==1)
-                    cv::circle( img, tmp, 3,Scalar(0, 255, 0) ,cv::FILLED, cv::LINE_AA, 0 );//绿色
-                if(indx_bd==2)
-                    cv::circle( img, tmp, 3,Scalar(0, 0, 255) ,cv::FILLED, cv::LINE_AA, 0 );//红色
+                if(indx_bd == 0)
+                    cv::circle(img, tmp, 3, Scalar(255, 0, 0), cv::FILLED, cv::LINE_AA, 0);  // 蓝色
+                if(indx_bd == 1)
+                    cv::circle(img, tmp, 3, Scalar(0, 255, 0), cv::FILLED, cv::LINE_AA, 0);  // 绿色
+                if(indx_bd == 2)
+                    cv::circle(img, tmp, 3, Scalar(0, 0, 255), cv::FILLED, cv::LINE_AA, 0);  // 红色
             }
-            //形心坐标
-            Point2f centroid = acc/(float)numofcorner;
+            
+            // 计算并存储当前标定板的形心坐标
+            Point2f centroid = acc / (float)numofcorner;
             cur_boards[indx_bd].centroid = centroid;
         }
-        return Update_Rect(max_x,min_x,max_y,min_y,image_size);
     }
 
 
@@ -784,14 +818,19 @@ namespace CAMERA
                                cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0,255,255), 1, cv::LINE_AA);
                 }
             }
+            
+            // 在图像上标注关键帧信息
+            cv::putText(img, "KeyFrame", cv::Point2f(10,60), 
+                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0,255,0), 2);
+            
             cv::imshow ( "Image", img);
             cv::waitKey(50);
 
             // 保存
             string sorted_debug_dir = path_root + "/img_sorted_boards";
-            string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_sorted.png";
+            string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_keyframe.png";
             cv::imwrite(sorted_save_path, img);
-            cout << "已保存排序后的图像到: " << sorted_save_path << endl;
+            cout << "已保存关键帧图像到: " << sorted_save_path << endl;
 
             // 对 cur_boards 做一次显式拷贝（这里逻辑等价于“保持当前顺序”）
             struct BOARD board0 = cur_boards[0];
@@ -1045,39 +1084,87 @@ namespace CAMERA
 
 
         bool ischoose = false;
-        // 确定棋盘格数量和角点数量是否准确
+        
+        // ========== 确定棋盘格数量和角点数量是否准确 ==========
         if(Ensure_ValidFrame(chessboards))
         {
-            // 选择有效帧，判断该帧是否适合用于标定
-            ischoose =choose_vaild_frame();
-
-            // 根据选择结果绘制不同颜色的矩形框
-            if(ischoose)
-                cv::rectangle(img, rect, cv::Scalar(0, 255, 0), 2); // 绿色：被选中
-            else
-                cv::rectangle(img, rect, cv::Scalar(0, 0, 255), 2); // 红色：未被选中
-
-            // 为标定板排序,为每个标定板中的角点排序；！！！！！！！！
-            sort_boards();
-
-            vector<cv::Point2f> three_bd_corners;
-            for(int indx_bd = 0;indx_bd<3;indx_bd++)
+            // ========== 判断是否为关键帧 ==========
+            if(is_keyframe())
             {
-                for(int i=0;i<pre_boards[indx_bd].orderd_corners.size();i++)
-                    three_bd_corners.push_back(pre_boards[indx_bd].orderd_corners[i]);
-            }
-            if(ischoose)
-            {
+                // ====== 关键帧处理：完整的检测、排序和保存 ======
+                cout << ">>> 帧 " << img_indx << " 被选为【关键帧】（间隔=" 
+                     << (last_keyframe_id == -1 ? 0 : img_indx - last_keyframe_id) << "）" << endl;
+                
+                // 提取并组织棋盘格角点信息
+                choose_vaild_frame();
+
+                // 为标定板排序,为每个标定板中的角点排序
+                sort_boards();
+
+                // 收集三个标定板的所有有序角点
+                vector<cv::Point2f> three_bd_corners;
+                for(int indx_bd = 0;indx_bd<3;indx_bd++)
+                {
+                    for(int i=0;i<pre_boards[indx_bd].orderd_corners.size();i++)
+                        three_bd_corners.push_back(pre_boards[indx_bd].orderd_corners[i]);
+                }
+                
+                // 保存到标定数据集
                 all_corners.insert(pair<int,vector<Point2f>>(img_indx,three_bd_corners));
                 camera_cal_frame.push_back(img_indx);
+                
+                // 更新上一个关键帧的ID
+                last_keyframe_id = img_indx;
+                ischoose = true;
+            }
+            else
+            {
+                // ====== 非关键帧处理：只做光流追踪，保持时序连续性 ======
+                cout << ">>> 帧 " << img_indx << " 为【非关键帧】（距上一关键帧 " 
+                     << img_indx - last_keyframe_id << " 帧，需>=5帧）" << endl;
+                
+                // 提取角点信息，用于更新光流追踪点
+                choose_vaild_frame();
+                
+                // 进行形心跟踪和光流更新
+                TrackCentroid();
+                
+                // 更新光流追踪点（但不进行完整的角点排序）
+                for(int indx_bd=0;indx_bd<3;indx_bd++)
+                {
+                    // 只更新first_edge_indx，为下一帧光流追踪做准备
+                    bool valid = Update_Ordered_Info(indx_bd);
+                    if(valid)
+                    {
+                        // 更新pre_boards用于下一帧
+                        pre_boards[indx_bd] = cur_boards[indx_bd];
+                        pre_first_edge_points[indx_bd] = cur_boards[indx_bd].corners[cur_boards[indx_bd].first_edge_indx];
+                    }
+                }
+                
+                // 在图像上标注
+                cv::putText(img, "Non-KeyFrame", cv::Point2f(10,60), 
+                           cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255,165,0), 2);
+                cv::imshow("Image", img);
+                cv::waitKey(50);
+                
+                // 保存非关键帧图像
+                string sorted_debug_dir = path_root + "/img_sorted_boards";
+                string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_nonkeyframe.png";
+                cv::imwrite(sorted_save_path, img);
+                cout << "已保存非关键帧图像到: " << sorted_save_path << endl;
+                
+                ischoose = false;
             }
         }
         else
         {
-            // 如果检测到当前帧的角点数量错误（无效帧）
+            // ========== 检测失败：无效帧（棋盘格检测数量不对） ==========
+            cout << ">>> 帧 " << img_indx << " 为无效帧（棋盘格检测失败）" << endl;
+            
             if(detectfirstframe)
             {
-                // 使用光流法跟踪第一帧的边缘点
+                // 使用光流法跟踪第一帧的边缘点，保持追踪不中断
                 vector<Point2f> curr_first_edge_points;
                 vector<unsigned char> status;  // 跟踪状态
                 vector<float> error;           // 跟踪误差
@@ -1092,9 +1179,10 @@ namespace CAMERA
                 {
                     cv::circle( img, pre_first_edge_points[i], 6,cv::Scalar(28,255,255));
                 }
-
-                // 绘制白色矩形框表示无效帧
-                cv::rectangle(img, rect, cv::Scalar(255, 255, 255), 2);
+                
+                // 在图像上标注无效帧信息
+                cv::putText(img, "Invalid Frame", cv::Point2f(10,60), 
+                           cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0,0,255), 2);
 
                 // 显示处理后的图像
                 cv::imshow ( "Image", img);
@@ -1283,9 +1371,6 @@ namespace CAMERA
 			// 计算平均重投影误差
 			double avg_error = (point_count > 0) ? total_error / point_count : 0.0;
 			cout<<"Frame "<<p<<" - Average reprojection error: "<<avg_error<<" pixels"<<endl;
-			
-			// 在去畸变图像上绘制标定边框（绿色矩形）
-			cv::rectangle(img_undistort_with_points, rect, cv::Scalar(0, 255, 0), 2);
 			
 			// 水平拼接原始图像和去畸变图像
 			cv::Mat merge_img_final;
