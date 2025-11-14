@@ -18,6 +18,8 @@
     <param name="second_ransac_radius" type="double" value="0.8" />
     <param name="second_ransac_y_distance_threshold" type="double" value="0.05" />
     <param name="second_ransac_threshold" type="double" value="0.015" />
+    <!-- 使用平面中心点约束求解平移向量还是直接使用平面距离约束 true: 使用平面中心点约束; false: 使用平面距离约束 -->
+    <param name="use_plane_center_translation" value="true"/>  <!-- 或 false -->
     <!-- 随机采样标定参数 -->
     <param name="sample_iter" type="int" value="3" />
     <param name="sample_data_num" type="int" value="4" />

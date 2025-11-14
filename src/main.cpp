@@ -199,6 +199,9 @@ int main(int argc, char **argv)
     n.getParam("/camera_calibration/IntrincMatrix", getIntrincMatrix);//是否标定相机
 	n.getParam("/camera_calibration/Extrinsic", getExtrinsic);//
     n.getParam("/camera_calibration/lidar_config_path", lidar_config_path);
+    // 设置平移求解方式（true: 使用平面中心点约束; false: 使用平面距离约束）
+    bool use_plane_center_translation = true;
+    n.getParam("/camera_calibration/use_plane_center_translation", use_plane_center_translation);
 
     //设置角点检测和棋盘格识别的阈值参数
     double corner_detect_threshold = 0.15;  // 角点检测阈值默认值
@@ -520,23 +523,31 @@ int main(int argc, char **argv)
             //最后开始计算外参
             vector<vector<Eigen::Vector4f>> lidarPlanes;
             vector<vector<Eigen::Vector4f>> camPlanes;
+            // 与参与外参优化的平面一一对应的雷达系平面中心点
+            vector<vector<Eigen::Vector3f>> lidarCentersOpt;
 
+            int center_idx = 0;
             for(map<int,vector<Eigen::Vector4f>>::iterator iter=lidar_planes.begin();iter!=lidar_planes.end();iter++)
-            {   vector<Eigen::Vector3f> lc;
-                Eigen::Vector3f p;
-                int i=iter->first;
-                //这一frame同时检测到了相机和激光的平面，才会加入到优化中
-                if((cam_planes.find(i)!=cam_planes.end())&&(lidar_planes.find(i)!=lidar_planes.end()))
+            {   
+                int frame_idx = iter->first;
+                // 这一frame同时检测到了相机和激光的平面，才会加入到优化中
+                if((cam_planes.find(frame_idx)!=cam_planes.end())&&(lidar_planes.find(frame_idx)!=lidar_planes.end()))
                 {
+                    lidarPlanes.push_back(lidar_planes[frame_idx]);
+                    camPlanes.push_back(cam_planes[frame_idx]);
 
-                    lidarPlanes.push_back(lidar_planes[i]);
-                    camPlanes.push_back(cam_planes[i]);
-                    //cout<<"The frame indx to join extrinsic optimization = "<<i<<endl;
-                    // //cout<<" lidar plane norm= "<<lidar_planes[i][0].head<3>().norm()<<" "<<lidar_planes[i][1].head<3>().norm()<<endl;
-                    // //cout<<" cam plane norm = "<<cam_planes[i][0].head<3>().norm()<<" "<<cam_planes[i][1].head<3>().norm()<<endl;
-                    //cout<<" lidar plane = "<<lidar_planes[i][0].transpose()<<" "<<lidar_planes[i][1].transpose()<<" "<<lidar_planes[i][2].transpose()<<endl;
-                    //cout<<" cam plane  = "<<cam_planes[i][0].transpose()<<" "<<cam_planes[i][1].transpose()<<" "<<cam_planes[i][2].transpose()<<endl;
+                    // 使用与该frame对应的雷达平面中心点
+                    if(center_idx < (int)lidarCenters.size())
+                    {
+                        lidarCentersOpt.push_back(lidarCenters[center_idx]);
+                    }
+                    else
+                    {
+                        cout<<"[Warning] lidarCenters index out of range when building lidarCentersOpt. frame_idx = "<<frame_idx<<endl;
+                    }
                 }
+                // 无论是否加入优化，都向前推进一次索引，以保持与lidar_planes插入顺序一致
+                center_idx++;
             }
             cout<<"Num of frames to optimize extrisinc = "<<lidarPlanes.size()<<endl;
             cout<<"lidarCenters.size():"<<lidarCenters.size()<<" "<<lidarCenters[0].size()<<endl;
@@ -562,46 +573,63 @@ int main(int argc, char **argv)
                         A(3*i+j,0) = (double)camPlanes[i][j](0);
                         A(3*i+j,1) = (double)camPlanes[i][j](1);
                         A(3*i+j,2) = (double)camPlanes[i][j](2);
-                        // 直接的平面距离约束：n_c^T * t_cl = d_c - d_l
-                        b(3*i+j,0) = (double)camPlanes[i][j](3) - (double)lidarPlanes[i][j](3);
                     }
                 }
                 ICP::pose_estimation_3d3d (cam_normals,lidar_normals,Rcl,tcl);
                 cout<<"ICP tcl(should be equal to zero) = "<<tcl.transpose()<<endl;
                 cout<<"Final Rcl = "<<endl<<Rcl<<endl;
                 cout<<"2.Start translation vector Optimization!!!!!"<<endl;
-                cout<<"Using direct plane distance constraint method"<<endl;
-                // 基于平面中心点的方法
+                if(use_plane_center_translation)
+                {
+                    cout<<"Using plane center constraint method"<<endl;
+                    // 基于平面中心点的方法：n_c^T (R_cl * p_l + t_cl) + d_c = 0
+                    // 推导得到：n_c^T t_cl = -( d_c + n_c^T R_cl p_l )
+                    for(int i=0;i<lidarPlanes.size();i++)
+                    {
+                        for(int j=0;j<3;j++)
+                        {
+                            const Eigen::Vector3f& center = lidarCentersOpt[i][j];
+                            Eigen::Vector3d pl(
+                                (double)center(0),
+                                (double)center(1),
+                                (double)center(2));
+                            Eigen::Vector3d plc = Rcl * pl;
 
-                // for(int i=0;i<lidarPlanes.size();i++)
-                // {
-                //     for(int j=0;j<3;j++)
-                //     {
-                //         pl=Eigen::Vector3d((double)lidarCenters[i][j][0],(double)lidarCenters[i][j][1],(double)lidarCenters[i][j][2]);
-                //         // pl[0]=(double)lidarCenters[i][j](0);
-                //         // cout<<"1"<<endl;
-                //         // pl[1]=(double)lidarCenters[i][j][1];
-                //         // pl[2]=(double)lidarCenters[i][j][2];
-                //         plc=Rcl*pl;
-                //         cout<<"plc:"<<plc<<endl;
-                //         b(3*i+j,0) =-(double)camPlanes[i][j][3]-((double)camPlanes[i][j][0]*pl[0]+(double)camPlanes[i][j][1]*pl[1]+(double)camPlanes[i][j][2]*pl[2]);
-                //     }
-                // }
+                            double nx = (double)camPlanes[i][j](0);
+                            double ny = (double)camPlanes[i][j](1);
+                            double nz = (double)camPlanes[i][j](2);
+                            double dc = (double)camPlanes[i][j](3);
+
+                            b(3*i+j,0) = -( dc + nx*plc[0] + ny*plc[1] + nz*plc[2] );
+                        }
+                    }
+                }
+                else
+                {
+                    cout<<"Using direct plane distance constraint method"<<endl;
+                    // 使用直接的平面距离约束：n_c^T * t_cl = d_c - d_l
+                    for(int i=0;i<lidarPlanes.size();i++)
+                    {
+                        for(int j=0;j<3;j++)
+                        {
+                            b(3*i+j,0) = (double)camPlanes[i][j](3) - (double)lidarPlanes[i][j](3);
+                        }
+                    }
+                }
 
                 Eigen::EigenSolver<Eigen::MatrixXd> es( A.transpose()*A );
                 cout<<"A = "<<endl<<A<<endl;
                 cout<<"ATA = "<<endl<<A.transpose()*A<<endl;
                 cout<<"b = "<<endl<<b<<endl;
+                cout<<"ATA 矩阵的特征值 = "<<endl<<es.eigenvalues()<<endl;
 
                 // 检查A矩阵的条件数
                 Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
                 double cond = svd.singularValues()(0) / svd.singularValues()(svd.singularValues().size()-1);
                 cout<<"A matrix condition number = "<<cond<<endl;
-                
-                if(cond > 1e12) {
+                if(cond > 1e5) {
                     cout<<"Warning: A matrix is ill-conditioned! condition number = "<<cond<<endl;
                 }
-
                 Eigen::MatrixXd tcl_xd = A.colPivHouseholderQr().solve(b);
                 
                 // 检查求解结果的有效性
@@ -611,7 +639,6 @@ int main(int argc, char **argv)
                     return -1;
                 }
 
-                cout<<"求解tcl 矩阵的特征值 = "<<endl<<es.eigenvalues()<<endl;
                 tcl(0) = tcl_xd(0);
                 tcl(1) = tcl_xd(1);
                 tcl(2) = tcl_xd(2);
