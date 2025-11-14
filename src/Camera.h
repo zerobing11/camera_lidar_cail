@@ -231,7 +231,6 @@ namespace CAMERA
             bool add(string path);//载入标定数据
 
             //calibration
-            void calibration();//内参标定
             void calibration(const cv::Mat& predefined_intrinsic, const cv::Mat& predefined_distortion);//使用预定义内参并计算外参
             void check();//标定数据检查
             void get_corners();//生成标定特征点
@@ -317,53 +316,15 @@ namespace CAMERA
 
     bool Camera::Ensure_ValidFrame(std::vector<cv::Mat> chessboards)
     {
-        // cout << "\n--- 帧有效性验证 ---" << endl;
-        // cout << "期望的棋盘格数量: 3" << endl;
-        // cout << "期望每个棋盘格的角点数: " << numofcorner << " (" << corner_height << "x" << corner_width << ")" << endl;
-        // cout << "实际检测到的棋盘格数量: " << chessboards.size() << endl;
-        
-        if(chessboards.size() == 0) {
-            // cout << "❌ 没有检测到任何棋盘格！" << endl;
-            // cout << "可能原因：" << endl;
-            // cout << "  1. 角点检测阈值太高，降低corner_detect_threshold" << endl;
-            // cout << "  2. 棋盘格识别阈值太高，降低chessboard_threshold" << endl;
-            // cout << "  3. 图像质量问题（模糊、光照等）" << endl;
-            return false;
-        }
-        
-        for(int i = 0; i < chessboards.size(); i++) {
-            int actual_corners = chessboards[i].cols * chessboards[i].rows;
-            // cout << "棋盘格" << i << ": " << chessboards[i].rows << "x" << chessboards[i].cols 
-            //      << " = " << actual_corners << "个角点";
-            if(actual_corners == numofcorner) {
-                // cout << " ✓" << endl;
-            } else {
-                // cout << " ❌ (期望" << numofcorner << "个)" << endl;
-            }
-        }
-        
+
         if((chessboards.size()==3)&&(chessboards[0].cols*chessboards[0].rows==numofcorner)&&
         (chessboards[1].cols*chessboards[1].rows==numofcorner)&&
         (chessboards[2].cols*chessboards[2].rows==numofcorner))
         {
-            // cout << "✅ 帧验证通过！检测到3个有效的" << corner_height << "x" << corner_width << "棋盘格" << endl;
             return true;
         }
         else
         {
-            // cout << "❌ 帧验证失败！" << endl;
-            if(chessboards.size() != 3) {
-                // cout << "问题：棋盘格数量不正确 (实际:" << chessboards.size() << ", 期望:3)" << endl;
-                if(chessboards.size() < 3) {
-                    // cout << "建议：降低chessboard_threshold或corner_detect_threshold" << endl;
-                } else {
-                    // cout << "建议：提高chessboard_threshold，减少误检" << endl;
-                }
-            }
-            if(chessboards.size() >= 1 && chessboards[0].cols*chessboards[0].rows != numofcorner) {
-                // cout << "问题：棋盘格尺寸不正确" << endl;
-                // cout << "建议：检查棋盘格实际尺寸是否为" << corner_height << "x" << corner_width << endl;
-            }
             return false;
         }
     }
@@ -427,50 +388,71 @@ namespace CAMERA
         return source_index;
     }
 
+    /*
+      对单个标定板的角点进行重新排序
+     1. 根据已知的起始角点(first_edge_indx)，确定四个边缘角点的顺序(ordered_edge_indx)
+     2. 基于四个有序的边缘角点，通过双线性插值生成整个棋盘格的有序角点序列(orderd_corners)，使所有角点按照从左上到右下、逐行排列的顺序存储
+     */
     bool Camera::Update_Ordered_Info(int indx_bd)
     {
-        //更新标定版上的ordered_edge_indx
+        // 清空上一帧的边缘角点顺序
         cur_boards[indx_bd].ordered_edge_indx.clear();
+        
+        // dist_map<角点在corners数组中的索引, 该角点到起始点的距离>
         vector<pair<int,float>> dist_map;
+        
+        // firstpoint是用户点击或光流跟踪确定的起始角点（对应棋盘格左上角）
         Point2f firstpoint = cur_boards[indx_bd].corners[cur_boards[indx_bd].first_edge_indx];
+        
+        // 计算四个边缘角点到起始点的距离，按距离从大到小排序
         for(int i=0;i<4;i++)
         {
             Point2f tmppoint = cur_boards[indx_bd].corners[cur_boards[indx_bd].edge_indx[i]];
             float dist = euclideanDist(firstpoint,tmppoint);
             dist_map.push_back(pair<int,float>(cur_boards[indx_bd].edge_indx[i],dist));
         }
-        sort(dist_map.begin(), dist_map.end(), CmpByValue()); 
+        sort(dist_map.begin(), dist_map.end(), CmpByValue());
         cur_boards[indx_bd].ordered_edge_indx.push_back(cur_boards[indx_bd].first_edge_indx);
-        cur_boards[indx_bd].ordered_edge_indx.push_back(dist_map[2].first);
-        cur_boards[indx_bd].ordered_edge_indx.push_back(dist_map[1].first);
-        cur_boards[indx_bd].ordered_edge_indx.push_back(dist_map[0].first);//最远的距离
+        cur_boards[indx_bd].ordered_edge_indx.push_back(dist_map[2].first);  // 次远点
+        cur_boards[indx_bd].ordered_edge_indx.push_back(dist_map[1].first);  // 次远点
+        cur_boards[indx_bd].ordered_edge_indx.push_back(dist_map[0].first);  // 最远点（对角点）
         
-        //然后更新orderd_corners
-        //根据最外侧的四个角点生成其他的24个角点
+        // A: 起始角点（左上）B: 第一个中等距离点 C: 第二个中等距离点 D: 对角点（右下）
         Point2f A = cur_boards[indx_bd].corners[cur_boards[indx_bd].ordered_edge_indx[0]];
         Point2f B = cur_boards[indx_bd].corners[cur_boards[indx_bd].ordered_edge_indx[1]];
         Point2f C = cur_boards[indx_bd].corners[cur_boards[indx_bd].ordered_edge_indx[2]];
         Point2f D = cur_boards[indx_bd].corners[cur_boards[indx_bd].ordered_edge_indx[3]];
-        Point2f vector1 = B-A;
-        Point2f vector2 = D-C;
+        
+        // 检查向量AB和向量DC的方向是否一致
+        Point2f vector1 = B-A;  // 从A指向B的向量
+        Point2f vector2 = D-C;  // 从C指向D的向量
+        
+        // 如果两向量点积为负，说明方向相反，需要交换C和D
         if((vector2.x*vector1.x+vector2.y*vector1.y)<0)
         {
+            // 交换C和D的坐标
             Point2f tmp = C;
             C = D;
             D = tmp;
+            // 同步更新ordered_edge_indx中的索引
             int indx_tmp = cur_boards[indx_bd].ordered_edge_indx[3];
             cur_boards[indx_bd].ordered_edge_indx[3] = cur_boards[indx_bd].ordered_edge_indx[2];
             cur_boards[indx_bd].ordered_edge_indx[2] = indx_tmp;
         }
-        //第一个点是白色，依次是红绿蓝
-        cv::circle( img, A, 3,cv::Scalar(255,255,255) ,cv::FILLED, cv::LINE_AA, 0 );//红色
-        cv::circle( img, B, 3,cv::Scalar(0,0,255) ,cv::FILLED, cv::LINE_AA, 0 );//红色
-        cv::circle( img, C, 3,cv::Scalar(0,255,0) ,cv::FILLED, cv::LINE_AA, 0 );//绿色
-        cv::circle( img, D, 3,cv::Scalar(255,0,0) ,cv::FILLED, cv::LINE_AA, 0 );//蓝色
         
+        // 可视化四个边缘角点
+        // A点：白色，B点：红色，C点：绿色，D点：蓝色
+        cv::circle( img, A, 3,cv::Scalar(255,255,255) ,cv::FILLED, cv::LINE_AA, 0 );
+        cv::circle( img, B, 3,cv::Scalar(0,0,255) ,cv::FILLED, cv::LINE_AA, 0 );
+        cv::circle( img, C, 3,cv::Scalar(0,255,0) ,cv::FILLED, cv::LINE_AA, 0 );
+        cv::circle( img, D, 3,cv::Scalar(255,0,0) ,cv::FILLED, cv::LINE_AA, 0 );
+        
+        // 清空之前的有序角点序列
         cur_boards[indx_bd].orderd_corners.clear();
         
-        vector<pair<int,float>> start_dist_order,end_dist_order;
+        // 计算每个角点到AC BD线之间的距离,据此排序
+        vector<pair<int,float>> start_dist_order; //每个角点到AC线的距离
+        vector<pair<int,float>> end_dist_order;//每个角点到BD线的距离
         for(int j=0;j<cur_boards[indx_bd].corners.size();j++)
         {
             float dist= DistToLine(cur_boards[indx_bd].corners[j],A,C);
@@ -478,36 +460,58 @@ namespace CAMERA
             dist = DistToLine(cur_boards[indx_bd].corners[j],B,D);
             end_dist_order.push_back(pair<int,float>(j,dist));
         }
-        sort(start_dist_order.begin(),start_dist_order.end(),CmpByValueAscend());//升序
-        sort(end_dist_order.begin(),end_dist_order.end(),CmpByValueAscend());//升序
         
+        // 距离越近排越前
+        sort(start_dist_order.begin(),start_dist_order.end(),CmpByValueAscend());
+        sort(end_dist_order.begin(),end_dist_order.end(),CmpByValueAscend());
+        
+        // start_cd: 存储每行起点（靠近AC线的点）的索引及其到A点的距离
+        // end_cd: 存储每行终点（靠近BD线的点）的索引及其到B点的距离
         vector<pair<int,float>> start_cd,end_cd;
         for(int i=0;i<cornersize.height;i++)
         {
+            // 从距离AC线最近的角点中，选出前cornersize.height个点作为各行的起点候选
+            // 再计算这些候选点到A点的距离，用于确定行的顺序
             float dis = euclideanDist(A,cur_boards[indx_bd].corners[start_dist_order[i].first]);
             start_cd.push_back(pair<int,float>(start_dist_order[i].first,dis));
+            
+            // 同理，从距离BD线最近的角点中选出各行的终点候选
             dis = euclideanDist(B,cur_boards[indx_bd].corners[end_dist_order[i].first]);
             end_cd.push_back(pair<int,float>(end_dist_order[i].first,dis));
         }
-        sort(start_cd.begin(),start_cd.end(),CmpByValueAscend());//升序
-        sort(end_cd.begin(),end_cd.end(),CmpByValueAscend());//升序
         
+        // 按到A点/B点的距离升序排列，确保行的顺序从上到下
+        sort(start_cd.begin(),start_cd.end(),CmpByValueAscend());
+        sort(end_cd.begin(),end_cd.end(),CmpByValueAscend());
+        
+        //================== 在每一行上进行线性插值，生成理想格点 ==================
+        // search_points存储理想的格点位置（通过几何插值计算得到）
         vector<Point2f> search_points;
         for(int row=0;row<cornersize.height;row++)
         {
+            // 当前行的起点（左侧）
             Point2f start = cur_boards[indx_bd].corners[start_cd[row].first];
+            // 当前行的终点（右侧）
             Point2f end = cur_boards[indx_bd].corners[end_cd[row].first];
+            
+            // 在起点和终点之间均匀插值，生成该行的所有理想格点
             for(int col=0;col<cornersize.width;col++)
             {
+                // 计算每一列的增量向量
                 Point2f delta = (end-start)/(float)(cornersize.width-1);
+                // 第col列的理想位置 = 起点 + col * 增量
                 search_points.push_back(delta*col+start);
             }
         }
 
-        //然后设置最近邻搜索
+        //================== 最近邻搜索，将理想格点匹配到真实角点 ==================
+        // search_points中的点是理想位置，需要在实际检测到的角点中找到最近的真实角点
+        // SearchClosest使用KD树进行快速最近邻搜索
         vector<int> res = SearchClosest(cur_boards[indx_bd].corners,search_points);
+        
         if(res.size()!=0)
         {
+            // 匹配成功，按照search_points的顺序（逐行从左到右）构建有序角点序列
             cur_boards[indx_bd].orderd_corners.clear();
             for(int i=0;i<res.size();i++)
             {
@@ -517,6 +521,7 @@ namespace CAMERA
         }
         else
         {
+            // 匹配失败，说明角点分布异常或检测有误
             return false;
         }
         
@@ -665,78 +670,83 @@ namespace CAMERA
         return Update_Rect(max_x,min_x,max_y,min_y,image_size);
     }
 
+
+    //对三个标定板进行排序和角点排序，第一帧模式：需要用户手动点击三次来确定标定板顺序和起始角点，后续帧模式：自动使用光流跟踪和形心跟踪来确定标定板顺序
     void Camera::sort_boards()
     {
+        // 第一帧,手动点击，确定标定板顺序
         if(detectfirstframe==false)
         {
+            //鼠标回调
             MD.org_img=img.clone();
             MD.isMouseCallback=true;
             MD.click_count=-1;
             MouseDate* pMD=&MD;
             cvNamedWindow("Image");
 		    cvSetMouseCallback( "Image", on_mouse, (void*)pMD);
-
             cv::imshow ( "Image", img);
-            //等待手动标注标定板顺序
             cv::waitKey(0);
-            
-            for(int j=0;j<3;j++)
+
+            for(int click_point_index=0;click_point_index<3;click_point_index++)
             {
-                cv::Point2f clickpoint = cv::Point2f((float)MD.p[j][0],(float)MD.p[j][1]); 
-                cout<<MD.p[j][0]<<"  "<<MD.p[j][1]<<endl;
+                cv::Point2f clickpoint = cv::Point2f((float)MD.p[click_point_index][0],(float)MD.p[click_point_index][1]);
+                cout<<MD.p[click_point_index][0]<<"  "<<MD.p[click_point_index][1]<<endl;
+                // 遍历所有标定板的所有边缘角点,记录最近的最近的角点index和该角点所属的标定板index
                 float min_dist = 100000;
                 int min_board_indx = -1;
                 int min_corner_indx = -1;
-                for(int indx_bd=0;indx_bd<3;indx_bd++)
+                for(int board_index=0;board_index<3;board_index++)
                 {
-                    for(int i=0;i<4;i++)
+                    //遍历板子的四个边缘角点
+                    for(int cornor_edge_index=0;cornor_edge_index<4;cornor_edge_index++)
                     {
-                        int edge_indx = cur_boards[indx_bd].edge_indx[i];
-                        float dist = euclideanDist(cur_boards[indx_bd].corners[edge_indx],clickpoint);
+                        int edge_indx = cur_boards[board_index].edge_indx[cornor_edge_index];
+                        float dist = euclideanDist(cur_boards[board_index].corners[edge_indx],clickpoint);
                         if(min_dist>dist)
                         {
-                            min_board_indx = indx_bd;
+                            min_board_indx = board_index;
                             min_corner_indx = edge_indx;
                             min_dist = dist;
                         }
                     }
-                }//最近的点检测完毕
+                }
+                //当前点击点的最近点和所属的板子的重新命名
                 cur_boards[min_board_indx].first_edge_indx = min_corner_indx;
-                reorder_info[j] = min_board_indx;
+                reorder_info[click_point_index] = min_board_indx;
                 cout<<"min_board_indx = "<<min_board_indx<<" min_corner_indx = "<<min_corner_indx<<endl;
+
+                // 用白色圆圈把该第一个角点画出来
                 cv::circle( img, cur_boards[min_board_indx].corners[min_corner_indx], 3,Scalar(255, 255, 255) ,cv::FILLED, cv::LINE_AA, 0 );
-                //更新ordered_edge_indx和ordered_corner
-                bool valid = Update_Ordered_Info(min_board_indx);//根据点的顺序重新对board进行排序
+
+                // 根据起始角点，重新排序该标定板的所有角点！！！！！！！！！！！！！！！！！！！！！
+                bool valid = Update_Ordered_Info(min_board_indx);
                 if(valid)
                 {
+                    // 在图像上标注所有角点的序号
                     for(int i=0;i<cur_boards[min_board_indx].orderd_corners.size();i++)
                     {
                         Point2f tmp = cur_boards[min_board_indx].orderd_corners[i];
-                        if((i==0)||(i==corner_height-1)||(i==corner_height*corner_width-corner_height)||(i==corner_height*corner_width-1))
-                        cv::putText(img,std::to_string(i+j*numofcorner),tmp,cv::FONT_HERSHEY_SIMPLEX,0.6,cv::Scalar(80,127,255),1,1);
+                        int global_corner_id = i + click_point_index * numofcorner;
+                        cv::putText(img, std::to_string(global_corner_id), tmp, 
+                                   cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0,255,255), 1, cv::LINE_AA);
                     }
-                    cout<<"Update_Ordered_Info Success"<<endl;
                 }
-                else
-                {
-                cout<<"Update_Ordered_Info Fails"<<endl;
-                }
-                 
             }
             cv::imshow ( "Image", img);
             cv::waitKey(0);
 
-            //初始化
             isMouseCallback = false;
             detectfirstframe = true;
-            // 保存第一次确认后的图像
+
+            // 保存第一帧排序和编号后的调试图像
             string sorted_debug_dir = path_root + "/img_sorted_boards";
             string mkdir_cmd = "mkdir -p " + sorted_debug_dir;
             system(mkdir_cmd.c_str());
             string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_sorted.png";
             cv::imwrite(sorted_save_path, img);
             cout << "已保存排序后的图像到: " << sorted_save_path << endl;
-            //最后交换顺序
+
+            // 根据点击的顺序 reorder_info 把三块板排成 [0], [1], [2]
             struct BOARD board0 = cur_boards[reorder_info[0]];
             struct BOARD board1 = cur_boards[reorder_info[1]];
             struct BOARD board2 = cur_boards[reorder_info[2]];
@@ -744,39 +754,46 @@ namespace CAMERA
             cur_boards[1] = board1;
             cur_boards[2] = board2;
             
+            // 记录当前帧排序后的结果，作为后续帧的“上一帧”用于光流跟踪
             pre_boards[0] = cur_boards[0];
             pre_boards[1] = cur_boards[1];
             pre_boards[2] = cur_boards[2];
+
+            // pre_first_edge_points 中保存三块板的“第一个角点”，作为光流初始点
             pre_first_edge_points.clear();
             for(int i=0;i<3;i++)
                 pre_first_edge_points.push_back(cur_boards[i].corners[cur_boards[i].first_edge_indx]);
         }
         else
         {
-            //根据上一个frame的重心来确定每个board中的first_edge_indx的序号
-            TrackCentroid();
-            Update_Ordered_Info(0);//根据点的顺序重新对board进行排序
-            Update_Ordered_Info(1);//根据点的顺序重新对board进行排序
-            Update_Ordered_Info(2);//根据点的顺序重新对board进行排序
+            TrackCentroid();//根据形心位置对三个标定板重新排序（最下方的为board[2]，其余两个按x坐标排序），使用光流法跟踪上一帧的起始角点，找到当前帧对应的起始角点
+
+            // 对三块板分别根据新的 first_edge_indx 重新对所有角点进行排序
+            Update_Ordered_Info(0);
+            Update_Ordered_Info(1);
+            Update_Ordered_Info(2);
+
+            // 在当前图像上标注所有角点的序号
             for(int indx_bd=0;indx_bd<3;indx_bd++)
             {
                 for(int i=0;i<cur_boards[indx_bd].orderd_corners.size();i++)
                 {
                     Point2f tmp = cur_boards[indx_bd].orderd_corners[i];
-                    if((i==0)||(i==corner_height-1)||(i==corner_height*corner_width-corner_height)||(i==corner_height*corner_width-1))
-                        cv::putText(img,std::to_string(i+indx_bd*numofcorner),tmp,cv::FONT_HERSHEY_SIMPLEX,0.6,cv::Scalar(80,127,255),1,1);
+                    int global_corner_id = i + indx_bd * numofcorner;
+                    cv::putText(img, std::to_string(global_corner_id), tmp, 
+                               cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0,255,255), 1, cv::LINE_AA);
                 }
             }
             cv::imshow ( "Image", img);
-            cv::waitKey(50);  // 延长到100ms，让边框检测结果更清楚
+            cv::waitKey(50);
 
-            // 保存后续自动处理的图像
+            // 保存
             string sorted_debug_dir = path_root + "/img_sorted_boards";
             string sorted_save_path = sorted_debug_dir + "/frame_" + std::to_string(img_indx) + "_sorted.png";
             cv::imwrite(sorted_save_path, img);
             cout << "已保存排序后的图像到: " << sorted_save_path << endl;
 
-            //最后交换顺序
+            // 对 cur_boards 做一次显式拷贝（这里逻辑等价于“保持当前顺序”）
             struct BOARD board0 = cur_boards[0];
             struct BOARD board1 = cur_boards[1];
             struct BOARD board2 = cur_boards[2];
@@ -784,6 +801,7 @@ namespace CAMERA
             cur_boards[1] = board1;
             cur_boards[2] = board2;
             
+            // 同步更新 pre_boards，为下一帧的光流跟踪提供参考
             pre_boards[0] = cur_boards[0];
             pre_boards[1] = cur_boards[1];
             pre_boards[2] = cur_boards[2];
@@ -1026,8 +1044,8 @@ namespace CAMERA
 
 
 
-        bool ischoose = false; // 标记当前帧是否被选中用于标定
-        // 检查当前帧是否为有效帧（角点数量正确）
+        bool ischoose = false;
+        // 确定棋盘格数量和角点数量是否准确
         if(Ensure_ValidFrame(chessboards))
         {
             // 选择有效帧，判断该帧是否适合用于标定
@@ -1039,23 +1057,18 @@ namespace CAMERA
             else
                 cv::rectangle(img, rect, cv::Scalar(0, 0, 255), 2); // 红色：未被选中
 
-            // 如果是第一帧，调整标定板顺序
+            // 为标定板排序,为每个标定板中的角点排序；！！！！！！！！
             sort_boards();
 
-            // 收集当前帧所有三个标定板的角点
             vector<cv::Point2f> three_bd_corners;
             for(int indx_bd = 0;indx_bd<3;indx_bd++)
             {
                 for(int i=0;i<pre_boards[indx_bd].orderd_corners.size();i++)
                     three_bd_corners.push_back(pre_boards[indx_bd].orderd_corners[i]);
             }
-
-            // 如果该帧被选中，保存角点信息用于标定
             if(ischoose)
             {
-                // 将当前帧的角点信息存储到全局角点映射中
                 all_corners.insert(pair<int,vector<Point2f>>(img_indx,three_bd_corners));
-                // 将当前帧索引添加到标定帧列表中
                 camera_cal_frame.push_back(img_indx);
             }
         }
@@ -1069,7 +1082,6 @@ namespace CAMERA
                 vector<unsigned char> status;  // 跟踪状态
                 vector<float> error;           // 跟踪误差
 
-                // 使用金字塔LK光流算法跟踪特征点
                 cv::calcOpticalFlowPyrLK(pre_img,img,pre_first_edge_points,curr_first_edge_points,status,error,cv::Size(21,21),5);
 
                 // 更新跟踪点
@@ -1139,29 +1151,6 @@ namespace CAMERA
 			temp3d.clear();  
         }
 
-    }
-
-    void Camera::calibration()
-    {
-        //check
-        check();
-        get_corners();
-        
-        cout<<"Start calculate camera intrincMatrix!!!"<<endl;
-        intrincMatrix = CameraCalibration3D::initCameraMatrix2DNew(valid3d,valid2d,image_size,true);
-        cout<<"Initial intrincMatrix = "<<endl;
-		cout<<intrincMatrix<<endl;
-		cout<<"Initial distParameter = "<<endl;
-		cout<<distParameter<<endl<<endl;
-
-        cv::calibrateCamera(valid3d,valid2d,image_size,intrincMatrix,distParameter,rotateMat,translateMat,CALIB_USE_INTRINSIC_GUESS);//cv::CALIB_USE_INTRINSIC_GUESS
-        cout<<"Final intrincMatrix = "<<endl;
-		cout<<intrincMatrix<<endl;
-		cout<<"Final distParameter = "<<endl;
-            cout<<distParameter<<endl;
-
-		cv::initUndistortRectifyMap(intrincMatrix,distParameter,Mat::eye(3,3,CV_32FC1),intrincMatrix,image_size,CV_32FC1,mapx,mapy);
-        cout<<"Camera calibration has finished"<<endl<<endl;
     }
 
     void Camera::calibration(const cv::Mat& predefined_intrinsic, const cv::Mat& predefined_distortion)
@@ -1302,7 +1291,6 @@ namespace CAMERA
 			cv::Mat merge_img_final;
 			Util::imageJoinHorizon(img_with_points, img_undistort_with_points, merge_img_final);
 			
-			// 添加文本信息
 			string info_text = "Frame " + std::to_string(p+1) + "/" + std::to_string(camera_cal_frame.size());
 			string error_text = "Avg Error: " + std::to_string(avg_error).substr(0,5) + " px";
 			string legend_text = "Blue: Projected | Red: Detected | Green: Connection";
@@ -1314,12 +1302,11 @@ namespace CAMERA
 			cv::putText(merge_img_final, legend_text, cv::Point2f(10,90), 
 			           cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255,255,255), 1);
 			
-			// 显示拼接后的对比图像
 			cv::imshow("Intrinsic & Extrinsic Validation", merge_img_final);
 			
 			//等待按键继续（ESC退出，其他键继续）
 			int key = cv::waitKey(0);
-			if(key == 27) // ESC键
+			if(key == 27)
 			{
 				cout<<"Validation stopped by user."<<endl;
 				break;

@@ -236,8 +236,6 @@ int main(int argc, char **argv)
                 cout<<"有效帧 " << camera_valid_frame.size() << ": " << lidar_img_name[1] << ".png" << endl;
             }
         }
-
-        // 定义已标定好的相机内参
         // cv::Mat predefined_intrinsic = (cv::Mat_<double>(3,3) <<
         //     606.3696899414062, 0.0, 417.6044616699219,
         //     0.0, 604.7097778320312, 247.67758178710938,
@@ -289,15 +287,10 @@ int main(int argc, char **argv)
             cout<<"------------Processing frame: "<<ind<<"------------"<<endl;
             if(!FirstLidarFrame)
             {
-                //target已经在上面加载了，不需要重复加载
-                // cout<<"start transform index:"<<ind<<endl;
-                // cout<<i<<" frames has transformed,num of need to NDT:"<<camera_valid_frame.size()-i<<endl;
                 ndt.AddCurrentCloud(target,Twl);
                 Tlw=Twl.inverse();
                 pcl::PointCloud<pcl::PointXYZI>::Ptr trans_ptr(new pcl::PointCloud<pcl::PointXYZI>());//当前帧变换到世界地图中的坐标
-                //pcl::PointCloud<pcl::PointXYZI>::Ptr trans_ptr2(new pcl::PointCloud<pcl::PointXYZI>());//当前帧变换到世界地图中的坐标
 			    pcl::transformPointCloud(choose_points, *trans_ptr, Tlw);//将当前帧的点云scan_ptr变化到世界地图下得到transformed_scan_ptr
-                //pcl::transformPointCloud(target, *trans_ptr2, Twl);//将当前帧的点云scan_ptr变化到世界地图下得到transformed_scan_ptr
 
                 for(int j=0;j<3;j++)
                 {
@@ -307,7 +300,6 @@ int main(int argc, char **argv)
                     Bpoint.z=trans_ptr->points[j].z;
                     cout<<"Processing plane "<<(j+1)<<" at point ("<<Bpoint.x<<", "<<Bpoint.y<<", "<<Bpoint.z<<")"<<endl;
 
-                    // 使用新的分离RANSAC方法进行平面检测
                     Eigen::Vector4f first_plane_model;
                     Eigen::Vector3f plane_center_single;
                     
@@ -393,11 +385,10 @@ int main(int argc, char **argv)
                 tmp_plane_params.clear();
                 plane_center.clear();
                 
-                // 当前帧处理完成，根据参数决定是否等待用户按回车键
                 if(wait_enter)
                 {
                     cout<<"Frame "<<ind<<" processing completed. Press ENTER to continue to next frame..."<<endl;
-                    cin.get(); // 等待用户按回车键
+                    cin.get();
                 }
                 else
                 {
@@ -520,7 +511,6 @@ int main(int argc, char **argv)
         if(getExtrinsic)
         {
             cout<<"0.Start Extrinsic Optimization!!!!!!!!!!!"<<endl;
-            //最后开始计算外参
             vector<vector<Eigen::Vector4f>> lidarPlanes;
             vector<vector<Eigen::Vector4f>> camPlanes;
             // 与参与外参优化的平面一一对应的雷达系平面中心点
